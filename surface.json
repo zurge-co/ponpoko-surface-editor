@@ -1,0 +1,41 @@
+{
+  "id": "editor",
+  "name": "Editor",
+  "version": "1.0.0",
+  "entry": "index.html",
+  "description": "A code editor: open a folder, browse it, open files in tabs, edit, search, format, preview and navigate them.",
+  "methods": [
+    "fs.read",
+    "fs.write",
+    "fs.stat",
+    "fs.list",
+    "fs.read_asset",
+    "fs.create",
+    "fs.rename",
+    "fs.delete",
+    "fs.reveal",
+    "workspace.files",
+    "workspace.search",
+    "workspace.replace",
+    "workspace.symbols",
+    "workspace.definition",
+    "workspace.references",
+    "fmt.rustfmt",
+    "fmt.toml",
+    "app.ping",
+    "app.info"
+  ],
+  "contributes": [
+    {
+      "slot": "nav",
+      "title": "Editor",
+      "icon": "file-code"
+    }
+  ],
+  "backend": {
+    "command": "bin/editor-backend"
+  },
+  "cli": {
+    "command": "bin/editor-cli"
+  }
+}
