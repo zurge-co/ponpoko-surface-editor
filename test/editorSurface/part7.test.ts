@@ -207,6 +207,69 @@ describe("a paste writes the tree it was given, and never overwrites", () => {
     expect(notes).toEqual(["pasted 1 item"]);
   });
 
+  test("a folder never opened in the tree still yields to the name already on its disk", async () => {
+    const calls: Call[] = [];
+    const store = new Map<string, string>([["/w/taken.txt", "the one already there"]]);
+    const base = fakeFs(calls, store);
+    const withDisk: ReturnType<typeof fakeFs> = {
+      ...base,
+      list: async (path: string) => ({
+        path,
+        entries: [...store.keys()]
+          .filter((key) => key.startsWith(`${path}/`))
+          .map((key) => ({
+            name: key.slice(path.length + 1),
+            path: key,
+            is_dir: false,
+            is_symlink: false,
+            bytes: 0,
+          })),
+      }),
+      writeAsset: async (path: string, base64: string) => {
+        if (store.has(path)) throw new Error(`${path} already exists — choose another name`);
+        return base.writeAsset(path, base64);
+      },
+    };
+    const { ops, errors } = opsWith(withDisk, []);
+
+    await ops.transfer([{ kind: "file", name: "taken.txt", bytes: new Uint8Array([120]) }]);
+
+    expect(errors).toEqual([]);
+    expect(calls.map((call) => call.path)).toEqual(["/w/taken (2).txt"]);
+    expect(store.get("/w/taken.txt")).toBe("the one already there");
+    expect(store.has("/w/taken (2).txt")).toBe(true);
+  });
+
+  test("a name that appears on disk between two pastes is still never overwritten", async () => {
+    const calls: Call[] = [];
+    const store = new Map<string, string>();
+    const base = fakeFs(calls, store);
+    let listings = 0;
+    const racing: ReturnType<typeof fakeFs> = {
+      ...base,
+      list: async (path: string) => {
+        listings += 1;
+        return { path, entries: listings === 1 ? [] : [{ name: "shot.png", path: `${path}/shot.png`, is_dir: false, is_symlink: false, bytes: 0 }] };
+      },
+      writeAsset: async (path: string, base64: string) => {
+        if (store.has(path)) throw new Error(`${path} already exists — choose another name`);
+        return base.writeAsset(path, base64);
+      },
+    };
+    const { ops, errors } = opsWith(racing, []);
+
+    await ops.transfer([{ kind: "file", name: "shot.png", bytes: new Uint8Array([1]) }]);
+    expect(calls.map((call) => call.path)).toEqual(["/w/shot.png"]);
+
+    store.set("/w/shot.png", "someone else's file");
+    calls.length = 0;
+    await ops.transfer([{ kind: "file", name: "shot.png", bytes: new Uint8Array([2]) }]);
+
+    expect(errors).toEqual([]);
+    expect(calls.map((call) => call.path)).toEqual(["/w/shot (2).png"]);
+    expect(store.get("/w/shot.png")).toBe("someone else's file");
+  });
+
   test("a dragged path is copied by the backend instead of being read into the page", async () => {
     const calls: Call[] = [];
     const { ops } = opsWith(fakeFs(calls, new Map()), []);

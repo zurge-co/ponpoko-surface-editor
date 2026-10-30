@@ -1,5 +1,5 @@
 import type { ExplorerDeps } from "../explorer";
-import { dirName, joinPath, shortenPath } from "../../files";
+import { baseName, dirName, joinPath, shortenPath } from "../../files";
 import { assignNames, bytesToBase64, type TransferItem } from "../../transfer";
 
 function messageOf(error: unknown): string {
@@ -138,26 +138,60 @@ export function createOps(ports: OpsPorts) {
     done: boolean;
   }
 
+  async function namesOnDisk(folder: string): Promise<string[]> {
+    try {
+      const answer = await ports.deps.fs.list(folder, { showHidden: true });
+      return answer.entries.map((entry) => entry.name);
+    } catch {
+      return [];
+    }
+  }
+
+  async function takenIn(folder: string): Promise<string[]> {
+    const merged = [...ports.siblingsOf(folder), ...(await namesOnDisk(folder))];
+    return [...new Set(merged)];
+  }
+
+  async function land(parent: string, item: TransferItem, name: string): Promise<void> {
+    const path = joinPath(parent, name);
+    if (item.kind === "file") {
+      await ports.deps.fs.writeAsset(path, bytesToBase64(item.bytes));
+    } else if (item.kind === "asset") {
+      await ports.deps.fs.writeAsset(path, item.base64);
+    } else if (item.kind === "directory") {
+      await ports.deps.fs.create(path, "directory");
+      await writeFolder(path, item.children);
+    } else {
+      await ports.deps.fs.copy(item.path, path);
+    }
+  }
+
+  async function writeOne(parent: string, item: TransferItem, taken: string[]): Promise<Written> {
+    let takenNow = taken;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const name = assignNames([item], takenNow)[0]!.name;
+      try {
+        await land(parent, item, name);
+        return { path: joinPath(parent, name), done: true };
+      } catch (failure) {
+        const message = messageOf(failure);
+        if (!/already exists/i.test(message) || attempt === 2) {
+          ports.deps.onError(`Could not paste ${name}: ${message}`);
+          return { path: joinPath(parent, name), done: false };
+        }
+        takenNow = [...new Set([...takenNow, name, ...(await namesOnDisk(parent))])];
+      }
+    }
+    return { path: parent, done: false };
+  }
+
   async function writeFolder(parent: string, items: readonly TransferItem[]): Promise<Written[]> {
     const written: Written[] = [];
-    for (const { item, name } of assignNames(items, ports.siblingsOf(parent))) {
-      const path = joinPath(parent, name);
-      try {
-        if (item.kind === "file") {
-          await ports.deps.fs.writeAsset(path, bytesToBase64(item.bytes));
-        } else if (item.kind === "asset") {
-          await ports.deps.fs.writeAsset(path, item.base64);
-        } else if (item.kind === "directory") {
-          await ports.deps.fs.create(path, "directory");
-          await writeFolder(path, item.children);
-        } else {
-          await ports.deps.fs.copy(item.path, path);
-        }
-        written.push({ path, done: true });
-      } catch (failure) {
-        ports.deps.onError(`Could not paste ${name}: ${messageOf(failure)}`);
-        written.push({ path, done: false });
-      }
+    const taken = await takenIn(parent);
+    for (const item of items) {
+      const entry = await writeOne(parent, item, taken);
+      if (entry.done) taken.push(baseName(entry.path));
+      written.push(entry);
     }
     return written;
   }
