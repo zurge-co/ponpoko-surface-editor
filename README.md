@@ -241,10 +241,13 @@ Remove it from the Surfaces window, or with `ponpoko surface-remove editor`.
 
 ## How it talks to Ponpoko
 
-- `surface.json` asks for `tool.file` (the OS file dialog, opened by the host)
-  and `backend.call` (this surface's own process). It asks for nothing else, and
-  it has no way to ask for anything else: an unknown permission fails the whole
-  manifest at install time.
+- Three doors, all opened by the host: `tool.file` (the OS file dialog),
+  `tool.paste` (the clipboard the human just copied, answered as a path from
+  Finder, a screenshot as PNG bytes, or text) and `backend.call` (this surface's
+  own process). A drop from Finder never reaches this page directly — the host
+  measures where the pointer landed and posts `ponpoko.host.drop` with the paths.
+  The surface asks through these doors and no others: an unknown permission fails
+  the whole manifest at install time.
 - The page reaches Ponpoko only through `postMessage` (`src/bridge.ts` speaks the
   protocol the host's `app/src/lib/surfaceBridge.ts` defines). There is no Tauri
   IPC in the frame, so Ponpoko's own commands are not reachable from here at all.

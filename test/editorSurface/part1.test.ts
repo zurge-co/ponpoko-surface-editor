@@ -205,9 +205,9 @@ describe("the editor surface speaks the host's wire exactly", () => {
     expect(greetings).toHaveLength(1);
   });
 
-  test("the surface's vocabulary is the host's vocabulary: tool.file and backend.call", () => {
+  test("the surface's vocabulary is the host's vocabulary: tool.file, tool.paste and backend.call", () => {
     expect([...SURFACE_VERBS]).toEqual([...SURFACE_BRIDGE_VERBS]);
-    expect([...SURFACE_VERBS]).toEqual(["tool.file", "backend.call"]);
+    expect([...SURFACE_VERBS]).toEqual(["tool.file", "tool.paste", "backend.call"]);
   });
 });
 

@@ -145,6 +145,8 @@ export function createOps(ports: OpsPorts) {
       try {
         if (item.kind === "file") {
           await ports.deps.fs.writeAsset(path, bytesToBase64(item.bytes));
+        } else if (item.kind === "asset") {
+          await ports.deps.fs.writeAsset(path, item.base64);
         } else if (item.kind === "directory") {
           await ports.deps.fs.create(path, "directory");
           await writeFolder(path, item.children);

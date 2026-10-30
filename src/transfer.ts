@@ -18,7 +18,13 @@ export interface TransferPath {
   path: string;
 }
 
-export type TransferItem = TransferFile | TransferFolder | TransferPath;
+export interface TransferAsset {
+  kind: "asset";
+  name: string;
+  base64: string;
+}
+
+export type TransferItem = TransferFile | TransferFolder | TransferPath | TransferAsset;
 
 function extensionOf(name: string): { base: string; extension: string } {
   const dot = name.lastIndexOf(".");
@@ -84,6 +90,10 @@ export function pathsFromUriList(text: string): string[] {
     if (decoded.length > 0 && !paths.includes(decoded)) paths.push(decoded);
   }
   return paths;
+}
+
+export function textAsset(name: string, text: string): TransferAsset {
+  return { kind: "asset", name, base64: bytesToBase64(new TextEncoder().encode(text)) };
 }
 
 export function countItems(items: readonly TransferItem[]): number {

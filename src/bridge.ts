@@ -2,12 +2,60 @@ export const SURFACE_BRIDGE_CHANNEL = "ponpoko.surface.v1";
 export const SURFACE_READY = "ponpoko.surface.ready";
 export const HOST_HELLO = "ponpoko.host.hello";
 export const HOST_PALETTE = "ponpoko.host.palette";
+export const HOST_DROP = "ponpoko.host.drop";
 
 export type PaletteTokens = Record<string, string>;
 
-export type SurfaceVerb = "tool.file" | "backend.call";
+export type SurfaceVerb = "tool.file" | "tool.paste" | "backend.call";
 
-export const SURFACE_VERBS: readonly SurfaceVerb[] = ["tool.file", "backend.call"];
+export const SURFACE_VERBS: readonly SurfaceVerb[] = ["tool.file", "tool.paste", "backend.call"];
+
+export type PasteKind = "file" | "image" | "text" | "nothing";
+
+export const PASTE_KINDS: readonly PasteKind[] = ["file", "image", "text", "nothing"];
+
+export interface PasteAnswer {
+  kind: PasteKind;
+  name: string;
+  mime: string;
+  bytes: number;
+  base64: string;
+  paths: string[];
+  text: string;
+}
+
+export const NOTHING_TO_PASTE: PasteAnswer = {
+  kind: "nothing",
+  name: "",
+  mime: "",
+  bytes: 0,
+  base64: "",
+  paths: [],
+  text: "",
+};
+
+export function readPasteAnswer(value: unknown): PasteAnswer {
+  if (!isRecord(value)) return NOTHING_TO_PASTE;
+  const kind = PASTE_KINDS.find((name) => name === value.kind) ?? "nothing";
+  const strings = (field: unknown): string[] =>
+    Array.isArray(field) ? field.filter((entry): entry is string => typeof entry === "string") : [];
+  return {
+    kind,
+    name: typeof value.name === "string" ? value.name : "",
+    mime: typeof value.mime === "string" ? value.mime : "",
+    bytes: typeof value.bytes === "number" && Number.isFinite(value.bytes) ? value.bytes : 0,
+    base64: typeof value.base64 === "string" ? value.base64 : "",
+    paths: strings(value.paths),
+    text: typeof value.text === "string" ? value.text : "",
+  };
+}
+
+export function dropPaths(value: unknown): string[] {
+  if (!isRecord(value)) return [];
+  const field = value.paths;
+  if (!Array.isArray(field)) return [];
+  return field.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+}
 
 export interface HostTransport {
   post(message: unknown): void;
@@ -44,9 +92,11 @@ export interface SurfaceLink {
   call(verb: SurfaceVerb, payload?: unknown): Promise<unknown>;
   callBackend<T = unknown>(method: string, params?: unknown): Promise<T>;
   pickFile(request: FilePickRequest): Promise<string | null>;
+  paste(): Promise<PasteAnswer>;
   announceReady(): void;
   onHello(handler: (doors: readonly string[]) => void): () => void;
   onPalette(handler: (tokens: PaletteTokens) => void): () => void;
+  onDrop(handler: (paths: readonly string[]) => void): () => void;
 }
 
 export interface SurfaceLinkOptions {
@@ -65,6 +115,7 @@ export function createSurfaceLink(options: SurfaceLinkOptions): SurfaceLink {
   const pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   const helloHandlers = new Set<(doors: readonly string[]) => void>();
   const paletteHandlers = new Set<(tokens: PaletteTokens) => void>();
+  const dropHandlers = new Set<(paths: readonly string[]) => void>();
 
   transport.subscribe((message) => {
     if (!isRecord(message)) return;
@@ -81,6 +132,12 @@ export function createSurfaceLink(options: SurfaceLinkOptions): SurfaceLink {
     if (message.control === HOST_PALETTE) {
       const tokens = readPaletteTokens(message.palette);
       if (tokens) for (const handler of paletteHandlers) handler(tokens);
+      return;
+    }
+
+    if (message.control === HOST_DROP) {
+      const paths = dropPaths(message);
+      if (paths.length > 0) for (const handler of dropHandlers) handler(paths);
       return;
     }
 
@@ -118,6 +175,9 @@ export function createSurfaceLink(options: SurfaceLinkOptions): SurfaceLink {
       const answer = await call("tool.file", request);
       return isRecord(answer) && typeof answer.path === "string" ? answer.path : null;
     },
+    async paste() {
+      return readPasteAnswer(await call("tool.paste", {}));
+    },
     announceReady() {
       transport.post({ channel: SURFACE_BRIDGE_CHANNEL, view, control: SURFACE_READY });
     },
@@ -128,6 +188,10 @@ export function createSurfaceLink(options: SurfaceLinkOptions): SurfaceLink {
     onPalette(handler) {
       paletteHandlers.add(handler);
       return () => paletteHandlers.delete(handler);
+    },
+    onDrop(handler) {
+      dropHandlers.add(handler);
+      return () => dropHandlers.delete(handler);
     },
   };
 }

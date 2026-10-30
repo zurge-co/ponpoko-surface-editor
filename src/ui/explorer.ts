@@ -14,7 +14,8 @@ import { createOps } from "./explorer/ops";
 import { revealActive as revealActivePath } from "./explorer/reveal";
 import { markActive } from "./explorer/active";
 import { drawTree, focusRow as focusRowInTree, rowNode, selectedRow, type TreePorts } from "./explorer/render";
-import { attachTransfer, pasteTargetItems } from "./explorer/transfer";
+import { createPasteDoor } from "./explorer/paste";
+import type { PasteAnswer } from "../bridge";
 import type { TransferItem } from "../transfer";
 
 export * from "./explorer/model";
@@ -66,6 +67,8 @@ export interface ConfirmRequest {
 
 export interface ExplorerDeps {
   fs: ExplorerFs;
+  paste(): Promise<PasteAnswer>;
+  onDrop(handler: (paths: readonly string[]) => void): () => void;
   root(): string | null;
   activePath(): string | null;
   openFile(path: string): void | Promise<void>;
@@ -322,7 +325,6 @@ export function createExplorer(deps: ExplorerDeps): Explorer {
     draw();
   }
 
-
   function selectAt(index: number): void {
     if (rows.length === 0) return;
     const bounded = Math.min(rows.length - 1, Math.max(0, index));
@@ -333,10 +335,7 @@ export function createExplorer(deps: ExplorerDeps): Explorer {
 
   const onTreeKeyDown = (event: KeyboardEvent) => {
     if (rows.length === 0) return;
-    const index = Math.max(
-      0,
-      rows.findIndex((row) => row.path === selected),
-    );
+    const index = Math.max(0, rows.findIndex((row) => row.path === selected));
     const current = rows[index];
 
     if (event.key === "ArrowDown") {
@@ -381,20 +380,17 @@ export function createExplorer(deps: ExplorerDeps): Explorer {
 
   tree.addEventListener("keydown", onTreeKeyDown);
 
-  const detachTransfer = attachTransfer(element, {
-    target: () => targetDirectory(),
-    accept: (items) => transfer(items),
+  const pasteDoor = createPasteDoor({
+    element,
+    read: () => deps.paste(),
+    onDrop: (handler) => deps.onDrop(handler),
+    root: () => root,
+    target: targetDirectory,
+    transfer: (items) => transfer(items),
     onNote: (message) => deps.onNote(message),
+    onError: (message) => deps.onError(message),
   });
-
-  async function pasteFromClipboard(): Promise<void> {
-    const items = await pasteTargetItems();
-    if (items.length === 0) {
-      deps.onNote("Nothing to paste — copy a file or an image first");
-      return;
-    }
-    await transfer(items);
-  }
+  const { pasteFromClipboard } = pasteDoor;
 
   filterInput.addEventListener("input", () => {
     filter = filterInput.value;
@@ -491,7 +487,7 @@ export function createExplorer(deps: ExplorerDeps): Explorer {
     selectedPath: () => selected,
     destroy() {
       generation += 1;
-      detachTransfer();
+      pasteDoor.detach();
       tree.removeEventListener("keydown", onTreeKeyDown);
       tree.remove();
       element.remove();

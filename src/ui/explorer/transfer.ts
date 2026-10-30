@@ -5,6 +5,17 @@ export interface TransferPorts {
   target(): string | null;
   accept(items: TransferItem[]): Promise<void> | void;
   onNote(message: string): void;
+  onHostPaste?(): void;
+}
+
+const EDITABLE = new Set(["INPUT", "TEXTAREA", "SELECT"]);
+
+function typesInTextInput(target: unknown): boolean {
+  const shaped = keysOf(target);
+  if (shaped === null) return false;
+  const tag = shaped["tagName"];
+  if (typeof tag === "string" && EDITABLE.has(tag.toUpperCase())) return true;
+  return shaped["isContentEditable"] === true;
 }
 
 interface EntryShape {
@@ -193,10 +204,16 @@ export function attachTransfer(element: HTMLElement, ports: TransferPorts): () =
   };
 
   const onPaste = (event: ClipboardEvent): void => {
+    if (typesInTextInput(event.target)) return;
     const data = event.clipboardData;
-    if (!hasFiles(data)) return;
+    if (hasFiles(data)) {
+      event.preventDefault();
+      void deliver(data);
+      return;
+    }
+    if (data === null || ports.onHostPaste === undefined) return;
     event.preventDefault();
-    void deliver(data);
+    ports.onHostPaste();
   };
 
   const onDragEnter = (event: DragEvent): void => {
@@ -240,51 +257,4 @@ export function attachTransfer(element: HTMLElement, ports: TransferPorts): () =
     element.removeEventListener("dragleave", onDragLeave as EventListener);
     element.removeEventListener("drop", onDrop as EventListener);
   };
-}
-
-interface ClipboardShape {
-  read?(): Promise<Array<{ types: string[]; getType(type: string): Promise<Blob> }>>;
-}
-
-const MIME_EXTENSIONS: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/gif": "gif",
-  "image/webp": "webp",
-  "image/svg+xml": "svg",
-  "image/bmp": "bmp",
-  "image/avif": "avif",
-  "text/plain": "txt",
-};
-
-export async function clipboardItems(clipboard: unknown): Promise<TransferItem[]> {
-  const shaped = keysOf(clipboard) as ClipboardShape | null;
-  if (shaped === null || typeof shaped.read !== "function") return [];
-  let records: Array<{ types: string[]; getType(type: string): Promise<Blob> }> = [];
-  try {
-    records = await shaped.read.call(clipboard);
-  } catch {
-    return [];
-  }
-  const items: TransferItem[] = [];
-  for (const record of records) {
-    for (const type of record.types ?? []) {
-      const extension = MIME_EXTENSIONS[type];
-      if (extension === undefined) continue;
-      try {
-        const blob = await record.getType(type);
-        const bytes = new Uint8Array(await blob.arrayBuffer());
-        if (bytes.length === 0) continue;
-        items.push({ kind: "file", name: `pasted.${extension}`, bytes });
-      } catch {
-        continue;
-      }
-    }
-  }
-  return dedupe(items);
-}
-
-export async function pasteTargetItems(): Promise<TransferItem[]> {
-  const clipboard = typeof navigator === "undefined" ? null : navigator.clipboard;
-  return clipboardItems(clipboard);
 }

@@ -168,6 +168,8 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
   });
 
   const explorer = createExplorer({
+    paste: () => options.link.paste(),
+    onDrop: (handler) => options.link.onDrop(handler),
     fs: {
       list: (path, options) => api.list(path, options),
       create: (path, kind) => api.create(path, kind),
