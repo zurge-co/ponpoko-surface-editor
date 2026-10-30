@@ -65,6 +65,18 @@ export const { fileCandidates } = await import("../src/ui/quickopen");
 export const { compareEntries, createFolderLoads, entryIcon, explorerRows, nameProblem, visibleEntries } = await import(
   "../src/ui/explorer"
 );
+export const { createOps } = await import("../src/ui/explorer/ops");
+export const { attachTransfer, entriesToItems, itemsFromDataTransfer } = await import(
+  "../src/ui/explorer/transfer"
+);
+export const {
+  assignNames,
+  bytesToBase64,
+  countItems,
+  pasteDirectory,
+  pathsFromUriList,
+  uniqueName,
+} = await import("../src/transfer");
 export const { filterOutline, outlineRows, symbolIcon } = await import("../src/ui/outline");
 export const { PONPOKO_COLORS } = await import("../src/theme");
 export const { editorConfigMatch, parseEditorConfig, resolveEditorConfig } = await import(

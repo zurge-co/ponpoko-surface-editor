@@ -171,6 +171,8 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
     fs: {
       list: (path, options) => api.list(path, options),
       create: (path, kind) => api.create(path, kind),
+      copy: (from, to) => api.copy(from, to),
+      writeAsset: (path, base64) => api.writeAsset(path, base64),
       rename: (path, to) => api.rename(path, to),
       remove: (path, options) => api.remove(path, options),
       stat: (path) => api.stat(path),

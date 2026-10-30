@@ -11,6 +11,8 @@
     "fs.list",
     "fs.read_asset",
     "fs.create",
+    "fs.copy",
+    "fs.write_asset",
     "fs.rename",
     "fs.delete",
     "fs.reveal",

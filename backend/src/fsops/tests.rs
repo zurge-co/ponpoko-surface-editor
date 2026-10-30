@@ -238,3 +238,75 @@ fn taplo_formats_toml_without_a_network_or_a_binary() {
     assert!(formatted.contains("name = \"Ponpoko\""), "{formatted}");
     assert!(formatted.ends_with('\n'), "{formatted:?}");
 }
+
+#[test]
+fn a_copy_reproduces_bytes_and_a_whole_folder_tree() {
+    let dir = temp_dir("copy");
+    let bytes: Vec<u8> = (0u16..=255).map(|byte| byte as u8).collect();
+    let file = dir.join("raw.bin");
+    std::fs::write(&file, &bytes).expect("seed file");
+    let cloned = dir.join("raw-copy.bin");
+    let answer = copy(&json!({ "from": file, "to": cloned })).expect("copy file");
+    assert_eq!(answer["is_dir"], false);
+    assert_eq!(answer["files"], 1);
+    assert_eq!(answer["bytes"], bytes.len() as u64);
+    assert_eq!(std::fs::read(&cloned).expect("the copy exists"), bytes);
+
+    let tree = dir.join("tree");
+    std::fs::create_dir_all(tree.join("src/deep")).expect("tree");
+    std::fs::write(tree.join("a.txt"), "a\n").expect("a");
+    std::fs::write(tree.join("src/b.txt"), "b\n").expect("b");
+    std::fs::write(tree.join("src/deep/c.txt"), "c\n").expect("c");
+    let clone = dir.join("tree-copy");
+    let answer = copy(&json!({ "from": tree, "to": clone })).expect("copy folder");
+    assert_eq!(answer["is_dir"], true);
+    assert_eq!(answer["files"], 3);
+    assert_eq!(
+        std::fs::read_to_string(clone.join("src/deep/c.txt")).expect("the deepest file"),
+        "c\n"
+    );
+    assert!(file.exists() && tree.exists(), "a copy keeps the original");
+}
+
+#[test]
+fn a_copy_never_overwrites_or_lands_inside_itself() {
+    let dir = temp_dir("copy-refuse");
+    let source = dir.join("notes.txt");
+    std::fs::write(&source, "new\n").expect("source");
+    let taken = dir.join("taken.txt");
+    std::fs::write(&taken, "old\n").expect("taken");
+
+    let error = copy(&json!({ "from": source, "to": taken })).expect_err("an existing target is refused");
+    assert_eq!(error.code, -32602);
+    assert!(error.message.contains("already exists"), "{}", error.message);
+    assert_eq!(std::fs::read_to_string(&taken).expect("untouched"), "old\n");
+
+    let folder = dir.join("folder");
+    std::fs::create_dir_all(&folder).expect("folder");
+    let error = copy(&json!({ "from": folder, "to": folder.join("inner") }))
+        .expect_err("a folder cannot be copied inside itself");
+    assert_eq!(error.code, -32602);
+    assert!(error.message.contains("cannot be copied inside itself"), "{}", error.message);
+}
+
+#[test]
+fn a_byte_array_written_as_base64_lands_byte_for_byte() {
+    let dir = temp_dir("asset");
+    let path = dir.join("image.bin");
+    let bytes: Vec<u8> = vec![0x00, 0xff, 0x10, 0x80, 0x7f, 0x01, 0xfe];
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let answer = write_asset(&json!({ "path": path, "base64": encoded })).expect("write asset");
+    assert_eq!(answer["bytes"], bytes.len() as u64);
+    assert_eq!(std::fs::read(&path).expect("the file exists"), bytes);
+
+    let error = write_asset(&json!({ "path": path, "base64": "AAEC" })).expect_err("no overwrite");
+    assert_eq!(error.code, -32602);
+    assert!(error.message.contains("already exists"), "{}", error.message);
+    assert_eq!(std::fs::read(&path).expect("untouched"), bytes);
+
+    let error = write_asset(&json!({ "path": dir.join("x.bin"), "base64": "not base64!" }))
+        .expect_err("broken base64 is refused");
+    assert_eq!(error.code, -32602);
+    assert!(error.message.contains("base64"), "{}", error.message);
+    assert!(!dir.join("x.bin").exists());
+}

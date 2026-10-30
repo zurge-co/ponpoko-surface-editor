@@ -1,3 +1,4 @@
+use base64::Engine as _;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -156,6 +157,118 @@ pub(crate) fn create(params: &Value) -> Result<Value, RpcError> {
     );
     value["exists"] = json!(true);
     Ok(value)
+}
+
+fn copy_tree(from: &Path, to: &Path, files: &mut u64, bytes: &mut u64) -> std::io::Result<()> {
+    let metadata = std::fs::symlink_metadata(from)?;
+    if metadata.is_dir() {
+        std::fs::create_dir(to)?;
+        for entry in std::fs::read_dir(from)? {
+            let entry = entry?;
+            copy_tree(&entry.path(), &to.join(entry.file_name()), files, bytes)?;
+        }
+        return Ok(());
+    }
+    let copied = std::fs::copy(from, to)?;
+    *files += 1;
+    *bytes += copied;
+    Ok(())
+}
+
+pub(crate) fn copy(params: &Value) -> Result<Value, RpcError> {
+    let from = params
+        .get("from")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|from| !from.is_empty())
+        .ok_or_else(|| invalid_params("fs.copy needs a non-empty 'from' path"))?;
+    let from = PathBuf::from(from);
+    let to = params
+        .get("to")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|to| !to.is_empty())
+        .ok_or_else(|| invalid_params("fs.copy needs a non-empty 'to' path"))?;
+    let to = PathBuf::from(to);
+
+    let metadata = std::fs::symlink_metadata(&from)
+        .map_err(|e| internal(format!("{} could not be copied: {e}", from.display())))?;
+    let is_dir = metadata.is_dir();
+    if is_dir && to.starts_with(&from) {
+        return Err(invalid_params(format!(
+            "{} cannot be copied inside itself ({})",
+            from.display(),
+            to.display()
+        )));
+    }
+    if to.exists() {
+        return Err(invalid_params(format!(
+            "{} already exists — choose another name",
+            to.display()
+        )));
+    }
+    let parent = to
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    if !parent.is_dir() {
+        return Err(invalid_params(format!(
+            "{} does not exist — create the folder first",
+            parent.display()
+        )));
+    }
+
+    let mut files = 0u64;
+    let mut bytes = 0u64;
+    copy_tree(&from, &to, &mut files, &mut bytes).map_err(|e| {
+        internal(format!(
+            "{} could not be copied to {}: {e}",
+            from.display(),
+            to.display()
+        ))
+    })?;
+
+    Ok(json!({
+        "from": from.to_string_lossy(),
+        "to": to.to_string_lossy(),
+        "is_dir": is_dir,
+        "bytes": bytes,
+        "files": files,
+    }))
+}
+
+pub(crate) fn write_asset(params: &Value) -> Result<Value, RpcError> {
+    let path = path_param(params, "fs.write_asset")?;
+    let encoded = params
+        .get("base64")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_params("fs.write_asset needs 'base64' (text)"))?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded.trim())
+        .map_err(|e| invalid_params(format!("the base64 for {} could not be decoded: {e}", path.display())))?;
+    if path.exists() {
+        return Err(invalid_params(format!(
+            "{} already exists — choose another name",
+            path.display()
+        )));
+    }
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    if !parent.is_dir() {
+        return Err(invalid_params(format!(
+            "{} does not exist — create the folder first",
+            parent.display()
+        )));
+    }
+
+    write_atomic(&path, &bytes)
+        .map_err(|e| internal(format!("{} could not be written: {e}", path.display())))?;
+    Ok(json!({
+        "path": path.to_string_lossy(),
+        "bytes": bytes.len(),
+    }))
 }
 
 pub(crate) fn rename(params: &Value) -> Result<Value, RpcError> {

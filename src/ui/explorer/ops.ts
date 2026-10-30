@@ -1,5 +1,6 @@
 import type { ExplorerDeps } from "../explorer";
 import { dirName, joinPath, shortenPath } from "../../files";
+import { assignNames, bytesToBase64, type TransferItem } from "../../transfer";
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -132,9 +133,59 @@ export function createOps(ports: OpsPorts) {
     }
   }
 
+  interface Written {
+    path: string;
+    done: boolean;
+  }
+
+  async function writeFolder(parent: string, items: readonly TransferItem[]): Promise<Written[]> {
+    const written: Written[] = [];
+    for (const { item, name } of assignNames(items, ports.siblingsOf(parent))) {
+      const path = joinPath(parent, name);
+      try {
+        if (item.kind === "file") {
+          await ports.deps.fs.writeAsset(path, bytesToBase64(item.bytes));
+        } else if (item.kind === "directory") {
+          await ports.deps.fs.create(path, "directory");
+          await writeFolder(path, item.children);
+        } else {
+          await ports.deps.fs.copy(item.path, path);
+        }
+        written.push({ path, done: true });
+      } catch (failure) {
+        ports.deps.onError(`Could not paste ${name}: ${messageOf(failure)}`);
+        written.push({ path, done: false });
+      }
+    }
+    return written;
+  }
+
+  async function transferOp(items: readonly TransferItem[]): Promise<void> {
+    const target = ports.targetDirectory();
+    if (target === null) {
+      ports.deps.onNote("Open a folder first");
+      return;
+    }
+    if (items.length === 0) {
+      ports.deps.onNote("Nothing to paste — drag files or folders here");
+      return;
+    }
+
+    const written = await writeFolder(target, items);
+    const landed = written.filter((entry) => entry.done);
+    if (landed.length === 0) return;
+
+    ports.expanded.add(target);
+    ports.select(landed[0]!.path);
+    await ports.refresh();
+    ports.focusRow(landed[0]!.path);
+    ports.deps.onNote(`pasted ${landed.length} item${landed.length === 1 ? "" : "s"}`);
+  }
+
   return {
     create: createOp,
     renameSelected: renameOp,
     deleteSelected: removeOp,
+    transfer: transferOp,
   };
 }

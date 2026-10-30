@@ -21,6 +21,15 @@ instead of pretending.
   costs one directory read, not a walk); files open in tabs; hidden files are
   behind a toggle. The tree has create file / create folder / rename / delete /
   reveal-in-OS / copy path, from the row's context menu and the keyboard.
+- **Drop files and folders onto the tree.** Dragging files or folders from the
+  OS file manager onto the Explorer, or pressing `Ctrl`/`Cmd`+`V` while the tree
+  has focus, writes them into the selected folder (the selected file's folder if
+  a file is selected, the workspace root when nothing is). Folders keep their
+  shape — every nested file is written — and a file too large to be handed to
+  the page is copied by the backend instead of being read into memory. A name
+  that is already taken becomes `notes (2).txt`; nothing is ever overwritten.
+  Image and text data on the clipboard can be pasted as a new file from the
+  "Paste Files" command.
 - **Ignore rules.** Search, Replace All and quick open skip what a programmer
   expects to skip: `.git`, `node_modules`, `target`, `dist`, `build`, and the
   rest of the backend's ignore list.
@@ -244,7 +253,8 @@ Remove it from the Surfaces window, or with `ponpoko surface-remove editor`.
   stdin/stdout that Ponpoko starts from the installed bundle and logs to
   `<app data dir>/logs/surface-backends/editor.log`, and `bin/editor-cli`, this
   surface's own command line. Methods: `fs.read`,
-  `fs.write`, `fs.stat`, `fs.list`, `fs.read_asset`, `fs.create`, `fs.rename`,
+  `fs.write`, `fs.stat`, `fs.list`, `fs.read_asset`, `fs.create`, `fs.copy`,
+  `fs.write_asset`, `fs.rename`,
   `fs.delete`, `fs.reveal`, `workspace.files`, `workspace.search`,
   `workspace.replace`, `workspace.symbols`, `workspace.definition`,
   `workspace.references`, `fmt.rustfmt`, `fmt.toml`, `app.ping`, `app.info`.

@@ -6,13 +6,15 @@ mod workspace;
 
 use workspace::Workspace;
 
-pub const METHODS: [&str; 19] = [
+pub const METHODS: [&str; 21] = [
     "fs.read",
     "fs.write",
     "fs.stat",
     "fs.list",
     "fs.read_asset",
     "fs.create",
+    "fs.copy",
+    "fs.write_asset",
     "fs.rename",
     "fs.delete",
     "fs.reveal",
@@ -93,6 +95,16 @@ impl Backend {
             }
             "fs.create" => {
                 let answer = fsops::create(params)?;
+                self.workspace.invalidate();
+                Ok(answer)
+            }
+            "fs.copy" => {
+                let answer = fsops::copy(params)?;
+                self.workspace.invalidate();
+                Ok(answer)
+            }
+            "fs.write_asset" => {
+                let answer = fsops::write_asset(params)?;
                 self.workspace.invalidate();
                 Ok(answer)
             }

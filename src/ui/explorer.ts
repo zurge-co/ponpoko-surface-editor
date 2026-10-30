@@ -5,20 +5,25 @@ import {
   isUnder,
   shortenPath,
 } from "../files";
-import { createIcon, type IconName } from "./icons";
+import { createIcon } from "./icons";
 import { showMenu } from "./menu";
+import { el, iconButton, messageOf } from "./explorer/chrome";
 import { compareEntries, createFolderLoads, explorerRows } from "./explorer/model";
 import { menuEntries } from "./explorer/menu";
 import { createOps } from "./explorer/ops";
 import { revealActive as revealActivePath } from "./explorer/reveal";
 import { markActive } from "./explorer/active";
 import { drawTree, focusRow as focusRowInTree, rowNode, selectedRow, type TreePorts } from "./explorer/render";
+import { attachTransfer, pasteTargetItems } from "./explorer/transfer";
+import type { TransferItem } from "../transfer";
 
 export * from "./explorer/model";
 
 export interface ExplorerFs {
   list(path: string, options?: { showHidden?: boolean }): Promise<ListAnswer>;
   create(path: string, kind: "file" | "directory"): Promise<CreateAnswer>;
+  copy(from: string, to: string): Promise<{ from: string; to: string; is_dir: boolean; bytes: number; files: number }>;
+  writeAsset(path: string, base64: string): Promise<{ path: string; bytes: number }>;
   rename(path: string, to: string): Promise<RenameAnswer>;
   remove(path: string, options?: { recursive?: boolean }): Promise<DeleteAnswer>;
   stat(path: string): Promise<StatAnswer>;
@@ -82,36 +87,14 @@ export interface Explorer {
   setActivePath(path: string | null): void;
   revealActive(): Promise<void>;
   create(kind: "file" | "directory"): Promise<void>;
+  transfer(items: readonly TransferItem[]): Promise<void>;
+  pasteFromClipboard(): Promise<void>;
   renameSelected(): Promise<void>;
   deleteSelected(): Promise<void>;
   collapseAll(): void;
   focus(): void;
   selectedPath(): string | null;
   destroy(): void;
-}
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function iconButton(icon: IconName, label: string): HTMLButtonElement {
-  const button = el("button", "icon-button");
-  button.type = "button";
-  button.title = label;
-  button.setAttribute("aria-label", label);
-  button.append(createIcon(icon, 14));
-  return button;
 }
 
 export function createExplorer(deps: ExplorerDeps): Explorer {
@@ -307,7 +290,7 @@ export function createExplorer(deps: ExplorerDeps): Explorer {
     remap,
     forget,
   });
-  const { create, renameSelected, deleteSelected } = ops;
+  const { create, renameSelected, deleteSelected, transfer } = ops;
 
   const menuActions = {
     open: (path: string) => void deps.openFile(path),
@@ -398,6 +381,21 @@ export function createExplorer(deps: ExplorerDeps): Explorer {
 
   tree.addEventListener("keydown", onTreeKeyDown);
 
+  const detachTransfer = attachTransfer(element, {
+    target: () => targetDirectory(),
+    accept: (items) => transfer(items),
+    onNote: (message) => deps.onNote(message),
+  });
+
+  async function pasteFromClipboard(): Promise<void> {
+    const items = await pasteTargetItems();
+    if (items.length === 0) {
+      deps.onNote("Nothing to paste — copy a file or an image first");
+      return;
+    }
+    await transfer(items);
+  }
+
   filterInput.addEventListener("input", () => {
     filter = filterInput.value;
     draw();
@@ -484,6 +482,8 @@ export function createExplorer(deps: ExplorerDeps): Explorer {
     setActivePath,
     revealActive,
     create,
+    transfer,
+    pasteFromClipboard,
     renameSelected,
     deleteSelected,
     collapseAll,
@@ -491,6 +491,7 @@ export function createExplorer(deps: ExplorerDeps): Explorer {
     selectedPath: () => selected,
     destroy() {
       generation += 1;
+      detachTransfer();
       tree.removeEventListener("keydown", onTreeKeyDown);
       tree.remove();
       element.remove();

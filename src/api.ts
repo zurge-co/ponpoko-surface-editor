@@ -53,6 +53,19 @@ export interface CreateAnswer {
   bytes: number;
 }
 
+export interface CopyAnswer {
+  from: string;
+  to: string;
+  is_dir: boolean;
+  bytes: number;
+  files: number;
+}
+
+export interface AssetWriteAnswer {
+  path: string;
+  bytes: number;
+}
+
 export interface RenameAnswer {
   from: string;
   to: string;
@@ -199,6 +212,8 @@ export interface EditorApi {
   list(path: string, options?: { showHidden?: boolean }): Promise<ListAnswer>;
   readAsset(path: string): Promise<AssetAnswer>;
   create(path: string, kind: "file" | "directory", content?: string): Promise<CreateAnswer>;
+  copy(from: string, to: string): Promise<CopyAnswer>;
+  writeAsset(path: string, base64: string): Promise<AssetWriteAnswer>;
   rename(path: string, to: string): Promise<RenameAnswer>;
   remove(path: string, options?: { recursive?: boolean }): Promise<DeleteAnswer>;
   reveal(path: string): Promise<{ revealed: boolean; opener: string; path: string }>;
@@ -267,6 +282,18 @@ export function createApi(link: SurfaceLink): EditorApi {
         "fs.create",
         content === undefined ? { path, kind } : { path, kind, content },
         (answer) => typeof answer.exists === "boolean" && isNumber(answer.bytes),
+      ),
+    copy: (from, to) =>
+      call<CopyAnswer>(
+        "fs.copy",
+        { from, to },
+        (answer) => isString(answer.from) && isString(answer.to) && isNumber(answer.bytes),
+      ),
+    writeAsset: (path, base64) =>
+      call<AssetWriteAnswer>(
+        "fs.write_asset",
+        { path, base64 },
+        (answer) => isString(answer.path) && isNumber(answer.bytes),
       ),
     rename: (path, to) =>
       call<RenameAnswer>("fs.rename", { path, to }, (answer) => isString(answer.to)),

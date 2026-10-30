@@ -150,6 +150,9 @@ export function registerCommands(host: CommandHost): void {
   register("explorer.collapseAll", "Collapse Folders", "Close every expanded folder", () =>
     host.explorer.collapseAll(),
   );
+  register("explorer.paste", "Paste Files", "Paste files or folders copied outside this editor", () =>
+    host.explorer.pasteFromClipboard()
+  );
 
   register("tab.next", "Next Tab", "Go to the next open tab", () => documents()?.next());
   register("tab.previous", "Previous Tab", "Go to the previous open tab", () => documents()?.previous());
