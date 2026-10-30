@@ -30,17 +30,34 @@ instead of pretending.
   that is already taken becomes `notes (2).txt`; nothing is ever overwritten.
   Image and text data on the clipboard can be pasted as a new file from the
   "Paste Files" command.
+- **Drag a row to move it.** Dragging a file or folder onto another folder in
+  the tree renames it into that folder (the whole folder and its open tabs follow
+  it). Dropping on a file means its folder, and dropping on empty tree space
+  means the workspace root. A folder cannot be dropped into itself or below
+  itself; a name already taken becomes `notes (2).txt`; the open workspace root
+  itself is not draggable.
 - **Ignore rules.** Search, Replace All and quick open skip what a programmer
   expects to skip: `.git`, `node_modules`, `target`, `dist`, `build`, and the
   rest of the backend's ignore list.
 - Everything on disk goes through the surface's own programs
   (`backend/src/`); Ponpoko itself never touches the files.
+- **Saves are atomic and honest.** A save writes a temporary file beside the
+  target and renames it into place, so a crash cannot leave half a file. A save
+  through a symlink edits the file the link names and leaves the link in place;
+  a read-only file is refused with a sentence instead of being replaced under
+  its protection. A name that differs only in case can be renamed on a
+  case-insensitive filesystem.
+- **Only regular files are text.** Pipes, sockets and devices are refused by
+  `fs.read`, `fs.read_asset` and the search walk, so a stray FIFO cannot block
+  the backend forever.
 
 ### Tabs and memory
 
 - **Tabs.** Several files at once, one `EditorState` per tab (undo history,
   selection, folds, the document), a dirty dot, close with Save / Don't Save /
-  Cancel, close others / close all, reopen the last closed tab.
+  Cancel, close others / close all, reopen the last closed tab. A reopened tab
+  asks the disk again, so a file that changed while it was closed comes back as
+  it is now rather than as it was.
 - **Untitled files.** New File (Cmd/Ctrl+N) starts a buffer that has no path yet;
   Save and Save As ask where it goes, and from then on it is an ordinary tab.
   Untitled buffers are deliberately not written to the session: their text is
@@ -81,6 +98,10 @@ matching, folding, and the usual CodeMirror undo/redo.
 - **Multi-cursor.** Select Next Occurrence (Cmd/Ctrl+D), Select All Occurrences
   (Cmd/Ctrl+Shift+L), Add Cursor Above/Below (Cmd/Ctrl+Alt+↑/↓), and Alt-click
   puts one more cursor where the pointer is. Alt+Shift-drag selects a rectangle.
+- **The editor's own context menu** keeps what replacing the browser menu would
+  otherwise take away: Undo, Redo, Cut, Copy, Paste and Select All (Cut and Copy
+  use the current line when nothing is selected; Cut only removes text after it
+  reached the clipboard).
 - **Indentation follows the file.** When a file is opened (or re-read from
   disk) its own indentation is read from the text — tabs, or a space width — and
   used for Tab and auto-indent, so editing a four-space or tab-indented project
@@ -109,7 +130,9 @@ matching, folding, and the usual CodeMirror undo/redo.
   word, hidden files, with results grouped per file and click-to-open at the
   exact line and column.
 - **Replace All asks first**, names how many matches in how many files, then
-  reports what actually changed and which files it could not write.
+  reports what actually changed and which files it could not write. A
+  replacement typed with plain line breaks is written with the file's own line
+  endings, so a CRLF file stays CRLF instead of becoming mixed.
 - Limits, stated rather than hit by surprise: files larger than 2 MB are not
   searched, and results stop at 2,000 matches (the panel says it stopped early).
 - After a Replace All, clean tabs reload from disk; a tab with unsaved edits is
@@ -141,9 +164,13 @@ One command per document (`Format Document`), by language:
   `fs.read_asset`; a relative link to another document opens that document in a
   tab; a link to the web is shown as text, because this surface has no browser
   and must not start a navigation inside the workbench.
-- **Images** (`png/jpg/jpeg/gif/webp/avif/bmp/ico/svg`) are drawn byte-for-byte
-  from `fs.read_asset` — no re-encode, no server — with real size and
-  dimensions, and zoom. Preview assets are capped at 32 MB.
+- **Images** (`png/jpg/jpeg/gif/webp/avif/bmp/ico`) open as a **read-only tab**:
+  clicking one in the Explorer, choosing it with Go to File or Open File, or
+  restoring it from a session shows the image itself in the main pane, drawn
+  byte-for-byte from `fs.read_asset` — no re-encode, no server — with real size
+  and dimensions, and zoom. The tab says "Image" and Save refuses to write it.
+  SVG is XML, so it opens as an editable text tab and is still previewable.
+  Preview assets are capped at 32 MB.
 - **HTML** is drawn in an iframe with an empty `sandbox` attribute and a
   Content-Security-Policy that permits inline styles and `data:` images only:
   **scripts never run**, and its local stylesheets and images are inlined first
@@ -185,8 +212,13 @@ The editor asks the disk, not its memory:
   still asks before overwriting.
 - A file deleted outside the editor is reported; the tab keeps the text that was
   last saved there, because that text is now the only copy.
+- An **image tab** has no buffer to lose, so it simply follows the disk: when
+  its timestamp changes, the preview reads the bytes again.
 - Renames and deletes done **in the Explorer** move or close the tabs that
   followed them, out loud.
+- Coming back to the window also refreshes the Explorer's open folders, so a
+  file another program created, renamed or deleted is in the tree without a
+  manual Refresh.
 
 ### Large files
 

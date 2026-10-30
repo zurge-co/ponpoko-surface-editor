@@ -50,6 +50,29 @@ export function isLargeFile(bytes: number): boolean {
   return bytes >= LARGE_FILE_BYTES;
 }
 
+/**
+ * Image formats that are not text. They open as a read-only preview tab, not
+ * in the editor, because the buffer would be meaningless. SVG is deliberately
+ * not here: it is XML, so it opens as text and can still be previewed.
+ */
+export const ASSET_IMAGE_EXTENSIONS: readonly string[] = [
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "avif",
+  "bmp",
+  "ico",
+];
+
+export function isAssetPath(path: string): boolean {
+  const name = baseName(path).toLowerCase();
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return false;
+  return ASSET_IMAGE_EXTENSIONS.includes(name.slice(dot + 1));
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

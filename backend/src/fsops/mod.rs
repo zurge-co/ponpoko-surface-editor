@@ -1,8 +1,72 @@
+use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use base64::Engine as _;
 use serde_json::{json, Value};
 use crate::{internal, invalid_params, RpcError};
+
+/// Names of the temporary files this process writes before renaming them into
+/// place. The counter keeps two writes in one process apart even when they
+/// target the same folder.
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn temp_sibling(path: &Path, tag: &str) -> PathBuf {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "file".to_string());
+    let stamp = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    parent.join(format!(
+        ".{name}.ponpoko-{tag}-{}-{stamp}.tmp",
+        std::process::id()
+    ))
+}
+
+/// A save into a symlink must edit the file the link names. Renaming a
+/// temporary file over the link itself would replace the link with a regular
+/// file and leave the real file untouched, which looks like a save that did
+/// nothing.
+fn write_target(path: &Path) -> PathBuf {
+    let mut current = path.to_path_buf();
+    for _ in 0..16 {
+        let points_at = match std::fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => true,
+            _ => false,
+        };
+        if !points_at {
+            return current;
+        }
+        if let Ok(real) = std::fs::canonicalize(&current) {
+            return real;
+        }
+        // The link is dangling. Follow it by hand so saving creates the file
+        // it names and leaves the link in place.
+        match std::fs::read_link(&current) {
+            Ok(link) if link.is_absolute() => current = link,
+            Ok(link) => {
+                current = current
+                    .parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+                    .unwrap_or_else(|| Path::new("."))
+                    .join(link);
+            }
+            Err(_) => return current,
+        }
+    }
+    current
+}
+
+fn not_a_regular_file(path: &Path, method: &str) -> RpcError {
+    invalid_params(format!(
+        "{} is not a regular file (it is a pipe, socket or device); {method} only reads regular files",
+        path.display()
+    ))
+}
 
 
 
@@ -67,6 +131,9 @@ pub(crate) fn read(params: &Value) -> Result<Value, RpcError> {
             path.display()
         )));
     }
+    if !metadata.is_file() {
+        return Err(not_a_regular_file(&path, "fs.read"));
+    }
     if metadata.len() > MAX_TEXT_BYTES {
         return Err(invalid_params(format!(
             "{} is {} bytes, larger than the {MAX_TEXT_BYTES} byte limit this editor opens",
@@ -107,6 +174,9 @@ pub(crate) fn read_asset(params: &Value) -> Result<Value, RpcError> {
             path.display()
         )));
     }
+    if !metadata.is_file() {
+        return Err(not_a_regular_file(&path, "fs.read_asset"));
+    }
     if metadata.len() > MAX_ASSET_BYTES {
         return Err(invalid_params(format!(
             "{} is {} bytes, larger than the {MAX_ASSET_BYTES} byte preview limit",
@@ -138,21 +208,28 @@ pub(crate) fn write(params: &Value) -> Result<Value, RpcError> {
 }
 
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_else(|| "file".to_string());
-    let temporary = parent.join(format!(".{name}.ponpoko-{}.tmp", std::process::id()));
+    let target = write_target(path);
+    let existing = std::fs::metadata(&target).ok();
+    if let Some(metadata) = &existing {
+        // An atomic save renames over the file, which would bypass a read-only
+        // permission. Refuse instead of quietly replacing a protected file.
+        if metadata.permissions().readonly() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!(
+                    "{} is read-only; make it writable before saving over it",
+                    path.display()
+                ),
+            ));
+        }
+    }
+    let temporary = temp_sibling(&target, "write");
 
     std::fs::write(&temporary, bytes)?;
-    if let Ok(existing) = std::fs::metadata(path) {
-        let _ = std::fs::set_permissions(&temporary, existing.permissions());
+    if let Some(metadata) = &existing {
+        let _ = std::fs::set_permissions(&temporary, metadata.permissions());
     }
-    match std::fs::rename(&temporary, path) {
+    match std::fs::rename(&temporary, &target) {
         Ok(()) => Ok(()),
         Err(e) => {
             let _ = std::fs::remove_file(&temporary);

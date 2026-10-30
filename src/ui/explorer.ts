@@ -10,10 +10,18 @@ import { showMenu } from "./menu";
 import { el, iconButton, messageOf } from "./explorer/chrome";
 import { compareEntries, createFolderLoads, explorerRows } from "./explorer/model";
 import { menuEntries } from "./explorer/menu";
+import { INTERNAL_MOVE_TYPE, moveTargetFolder } from "./explorer/move";
 import { createOps } from "./explorer/ops";
 import { revealActive as revealActivePath } from "./explorer/reveal";
 import { markActive } from "./explorer/active";
-import { drawTree, focusRow as focusRowInTree, rowNode, selectedRow, type TreePorts } from "./explorer/render";
+import {
+  drawTree,
+  focusRow as focusRowInTree,
+  rowNode,
+  selectedRow,
+  type TreeMovePorts,
+  type TreePorts,
+} from "./explorer/render";
 import { createPasteDoor } from "./explorer/paste";
 import type { PasteAnswer } from "../bridge";
 import type { TransferItem } from "../transfer";
@@ -102,7 +110,7 @@ export interface Explorer {
 
 export function createExplorer(deps: ExplorerDeps): Explorer {
   let root: string | null = null;
-  let expanded = new Set<string>();
+  const expanded = new Set<string>();
   let children = new Map<string, ListEntry[]>();
   let loading = new Set<string>();
   let selected: string | null = null;
@@ -152,6 +160,41 @@ export function createExplorer(deps: ExplorerDeps): Explorer {
     return explorerRows({ root, expanded, children, showHidden, filter });
   }
 
+  let dragging: string | null = null;
+
+  const moveController: TreeMovePorts = {
+    root: () => root,
+    begin(path, event) {
+      if (root === null || path === root) return;
+      dragging = path;
+      const data = event.dataTransfer;
+      if (data === null) return;
+      data.effectAllowed = "move";
+      try {
+        data.setData(INTERNAL_MOVE_TYPE, path);
+      } catch {
+      }
+    },
+    over(row, event) {
+      if (dragging === null || root === null) return false;
+      const folder = moveTargetFolder(dragging, row, root);
+      if (folder === null) return false;
+      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "move";
+      return true;
+    },
+    drop(row, event) {
+      if (dragging === null) return false;
+      const from = dragging;
+      const folder = moveTargetFolder(from, row, root);
+      dragging = null;
+      if (folder === null) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      void performMove(from, folder);
+      return true;
+    },
+  };
+
   const treePorts: TreePorts = {
     tree,
     filterRow,
@@ -174,6 +217,7 @@ export function createExplorer(deps: ExplorerDeps): Explorer {
     showRowMenu: (row, event) => showRowMenu(row, event),
     activePath: () => deps.activePath(),
     focusRow: (path) => focusRow(path),
+    move: moveController,
   };
 
   function selectedRowInTree(): ExplorerRow | null {
@@ -259,9 +303,16 @@ export function createExplorer(deps: ExplorerDeps): Explorer {
     }
   }
 
+  // Editing operations hold this Set by reference; replacing it would leave
+  // them expanding a set the tree no longer draws.
+  function replaceExpanded(paths: Iterable<string>): void {
+    expanded.clear();
+    for (const path of paths) expanded.add(path);
+  }
+
   function remap(from: string, to: string): void {
     const rebase = (path: string): string => `${to}${path.slice(from.length)}`;
-    expanded = new Set([...expanded].map((path) => (isUnder(path, from) ? rebase(path) : path)));
+    replaceExpanded([...expanded].map((path) => (isUnder(path, from) ? rebase(path) : path)));
     if (selected !== null && isUnder(selected, from)) selected = rebase(selected);
     children = new Map();
   }
@@ -294,6 +345,41 @@ export function createExplorer(deps: ExplorerDeps): Explorer {
     forget,
   });
   const { create, renameSelected, deleteSelected, transfer } = ops;
+
+  function performMove(from: string, folder: string): Promise<void> {
+    return ops.move(from, folder);
+  }
+
+  // Dropping on the empty part of the tree means the workspace root.
+  const onTreeDragOver = (event: DragEvent) => {
+    if (dragging === null || event.target !== tree) return;
+    if (moveTargetFolder(dragging, null, root) === null) return;
+    event.preventDefault();
+    if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "move";
+    tree.classList.add("is-move-target");
+  };
+  const onTreeDragLeave = (event: DragEvent) => {
+    if (event.target === tree) tree.classList.remove("is-move-target");
+  };
+  const onTreeDrop = (event: DragEvent) => {
+    tree.classList.remove("is-move-target");
+    if (dragging === null || event.target !== tree) return;
+    const from = dragging;
+    const folder = moveTargetFolder(from, null, root);
+    dragging = null;
+    if (folder === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void performMove(from, folder);
+  };
+  const onDragEnd = () => {
+    dragging = null;
+    tree.classList.remove("is-move-target");
+  };
+  tree.addEventListener("dragover", onTreeDragOver);
+  tree.addEventListener("dragleave", onTreeDragLeave);
+  tree.addEventListener("drop", onTreeDrop);
+  tree.addEventListener("dragend", onDragEnd);
 
   const menuActions = {
     open: (path: string) => void deps.openFile(path),
@@ -423,7 +509,7 @@ export function createExplorer(deps: ExplorerDeps): Explorer {
 
   function collapseAll(): void {
     if (root === null) return;
-    expanded = new Set([root]);
+    replaceExpanded([root]);
     selected = root;
     draw();
     focusRow(root);
@@ -434,7 +520,7 @@ export function createExplorer(deps: ExplorerDeps): Explorer {
     root = next;
     generation += 1;
     if (changed) {
-      expanded = new Set(next === null ? [] : [next]);
+      replaceExpanded(next === null ? [] : [next]);
       children = new Map();
       loading = new Set();
       selected = next;
@@ -487,8 +573,13 @@ export function createExplorer(deps: ExplorerDeps): Explorer {
     selectedPath: () => selected,
     destroy() {
       generation += 1;
+      dragging = null;
       pasteDoor.detach();
       tree.removeEventListener("keydown", onTreeKeyDown);
+      tree.removeEventListener("dragover", onTreeDragOver);
+      tree.removeEventListener("dragleave", onTreeDragLeave);
+      tree.removeEventListener("drop", onTreeDrop);
+      tree.removeEventListener("dragend", onDragEnd);
       tree.remove();
       element.remove();
     },

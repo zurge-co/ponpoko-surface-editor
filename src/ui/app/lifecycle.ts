@@ -51,7 +51,8 @@ export async function restoreSession(host: LifecycleHost, persisted: PersistedSe
     );
   }
   host.render();
-  if (host.tabs.list().length > 0) host.editor.focus();
+  const active = host.tabs.active();
+  if (active !== null && !active.asset) host.editor.focus();
 }
 
 export function wireLink(link: SurfaceLink, showError: (message: string) => void): void {

@@ -2,7 +2,7 @@ import type { EditorState } from "@codemirror/state";
 
 import type { EditorApi } from "./api";
 import type { FilePickRequest } from "./bridge";
-import { LARGE_FILE_BYTES, baseName, formatBytes, isLargeFile, joinPath, pathKey } from "./files";
+import { LARGE_FILE_BYTES, baseName, formatBytes, isAssetPath, isLargeFile, joinPath, pathKey } from "./files";
 import { languageFor, languageLabel, type LanguageId } from "./languages";
 import type { EditorSettings } from "./session";
 import { detectEol, detectIndentation, messageOf, normalizeEol, toDiskText } from "./documents/text";
@@ -49,6 +49,8 @@ export interface DocumentsDeps {
   onChange(): void;
   onError(message: string): void;
   onNote(message: string): void;
+  /** A file was written; the app may remember it among its recent files. */
+  onSaved?(path: string): void;
 }
 
 export interface Documents {
@@ -143,7 +145,9 @@ export function createDocuments(deps: DocumentsDeps): Documents {
 
   const rememberActive = (): void => {
     const active = tabs.active();
-    if (active) tabs.remember(active.id, deps.capture());
+    // An image tab is not in the editor, so a captured caret would describe
+    // the hidden text document instead of this tab.
+    if (active && !active.asset) tabs.remember(active.id, deps.capture());
   };
 
   const watcher = createDiskWatcher(deps, { acknowledged, checking, writing }, askConflict);
@@ -160,6 +164,10 @@ export function createDocuments(deps: DocumentsDeps): Documents {
       }
       return existing;
     }
+
+    // A PNG or a JPEG has no text to put in a buffer. It opens as a read-only
+    // tab that the preview pane draws, instead of failing as "not UTF-8".
+    if (isAssetPath(path)) return openAsset(path, options);
 
     try {
       const [read, info] = await Promise.all([deps.api.read(path), deps.api.stat(path)]);
@@ -190,6 +198,45 @@ export function createDocuments(deps: DocumentsDeps): Documents {
         deps.onNote(
           `${baseName(path)} is ${formatBytes(bytes)}; syntax highlighting is off above ${formatBytes(LARGE_FILE_BYTES)} so that typing stays responsive.`,
         );
+      }
+      deps.onChange();
+      return tab;
+    } catch (error) {
+      if (options.quiet !== true) deps.onError(`Could not open ${baseName(path)}: ${messageOf(error)}`);
+      return null;
+    }
+  }
+
+  async function openAsset(path: string, options: OpenPathOptions): Promise<Tab | null> {
+    try {
+      const info = await deps.api.stat(path);
+      if (!info.exists || info.is_file === false) {
+        if (options.quiet !== true) {
+          deps.onError(`Could not open ${baseName(path)}: there is no file at ${path}`);
+        }
+        return null;
+      }
+      const settings = deps.settings();
+      const state = deps.createState("", "text", settings, options.view);
+      const { tab } = tabs.open({
+        path,
+        state,
+        savedText: "",
+        language: "text",
+        languageOverridden: false,
+        eol: "lf",
+        tabSize: settings.tabSize,
+        insertSpaces: settings.insertSpaces,
+        indentationDetected: false,
+        indentationPinned: false,
+        modifiedMs: info.modified_ms ?? null,
+        bytes: info.bytes,
+        view: options.view,
+        activate: options.activate,
+        asset: true,
+      });
+      if (options.quiet !== true) {
+        deps.onNote(`${baseName(path)} is an image; it is shown read-only in the preview`);
       }
       deps.onChange();
       return tab;
@@ -247,6 +294,12 @@ export function createDocuments(deps: DocumentsDeps): Documents {
   }
 
   async function writeTab(tab: Tab, target: string): Promise<boolean> {
+    if (tab.asset) {
+      deps.onError(
+        `${tab.name} is an image preview; this editor shows images but does not write them.`,
+      );
+      return false;
+    }
     if (writing.has(tab.id)) return false;
     writing.add(tab.id);
     try {
@@ -295,6 +348,7 @@ export function createDocuments(deps: DocumentsDeps): Documents {
       });
       acknowledged.delete(tab.id);
       deps.onNote(`saved ${baseName(target)}`);
+      deps.onSaved?.(target);
       deps.onChange();
       return true;
     } catch (error) {
@@ -315,6 +369,12 @@ export function createDocuments(deps: DocumentsDeps): Documents {
   async function saveAs(tabId: string): Promise<boolean> {
     const tab = tabs.list().find((candidate) => candidate.id === tabId);
     if (!tab) return false;
+    if (tab.asset) {
+      deps.onError(
+        `${tab.name} is an image preview; this editor shows images but does not write them.`,
+      );
+      return false;
+    }
     if (busy) return false;
     busy = true;
     try {
@@ -359,6 +419,10 @@ export function createDocuments(deps: DocumentsDeps): Documents {
     if (!tab) return false;
     if (tab.path.length === 0) {
       deps.onNote(`${tab.name} has not been saved yet, so there is nothing on disk to go back to`);
+      return false;
+    }
+    if (tab.asset) {
+      deps.onNote(`${tab.name} is an image; the preview reads it again when it changes on disk`);
       return false;
     }
     if (tabs.dirty(tab)) {
@@ -425,13 +489,19 @@ export function createDocuments(deps: DocumentsDeps): Documents {
     const tabSize = ownIndentation ? closed.tabSize : current.tabSize;
     const insertSpaces = ownIndentation ? closed.insertSpaces : current.insertSpaces;
     const settings = { ...current, tabSize, insertSpaces };
-    const state = deps.createState(closed.savedText, closed.language, settings, {
-      scrollTop: 0,
-      topLine: 1,
-      cursorLine: 1,
-      cursorColumn: 1,
-    });
-    tabs.open({
+    const state = deps.createState(
+      closed.savedText,
+      closed.language,
+      settings,
+      {
+        scrollTop: 0,
+        topLine: 1,
+        cursorLine: 1,
+        cursorColumn: 1,
+      },
+      { largeFile: isLargeFile(closed.bytes) },
+    );
+    const { tab } = tabs.open({
       path: closed.path,
       name: closed.name,
       state,
@@ -447,8 +517,12 @@ export function createDocuments(deps: DocumentsDeps): Documents {
       bytes: closed.bytes,
       view: { scrollTop: 0, topLine: 1, cursorLine: 1, cursorColumn: 1 },
       activate: true,
+      asset: closed.asset,
     });
     deps.onChange();
+    // The file may have changed while the tab was closed. A reopened clean tab
+    // should follow the disk, exactly as it would if it had stayed open.
+    void reconcile(tab.id);
   }
 
   function activate(tabId: string): void {

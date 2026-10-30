@@ -6,11 +6,11 @@ export interface NotifyHost {
   showError(message: string): void;
 }
 
-export async function copyText(host: NotifyHost, text: string): Promise<void> {
+export async function copyText(host: NotifyHost, text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
-    host.showNote("copied the path");
-    return;
+    host.showNote("copied to the clipboard");
+    return true;
   } catch {
     const scratch = document.createElement("textarea");
     scratch.value = text;
@@ -22,10 +22,12 @@ export async function copyText(host: NotifyHost, text: string): Promise<void> {
     const copied = document.execCommand("copy");
     scratch.remove();
     if (copied) {
-      host.showNote("copied the path");
-      return;
+      host.showNote("copied to the clipboard");
+      return true;
     }
-    host.showError(`Could not copy to the clipboard. The path is: ${text}`);
+    const preview = text.length > 200 ? `${text.slice(0, 200)}…` : text;
+    host.showError(`Could not copy to the clipboard. The text is: ${preview}`);
+    return false;
   }
 }
 

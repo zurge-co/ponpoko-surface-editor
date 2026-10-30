@@ -1,7 +1,7 @@
 import type { EditorApi } from "../api";
 import type { TabModel } from "../tabs";
 import type { DocumentsDeps } from "../documents";
-import { baseName } from "../files";
+import { baseName, isLargeFile } from "../files";
 import { detectEol, detectIndentation, normalizeEol } from "./text";
 
 export interface ExternalPorts {
@@ -58,7 +58,7 @@ export function createExternalOps(ports: ExternalPorts, tabs: TabModel) {
     const kept: string[] = [];
     for (const path of paths) {
       const tab = tabs.findPath(path);
-      if (tab === null) continue;
+      if (tab === null || tab.asset) continue;
       if (tabs.dirty(tab)) {
         kept.push(tab.name);
         continue;
@@ -79,11 +79,17 @@ export function createExternalOps(ports: ExternalPorts, tabs: TabModel) {
           insertSpaces = guess?.insertSpaces ?? settings.insertSpaces;
           tabs.setIndentation(tab.id, tabSize, insertSpaces, guess !== null, false);
         }
-        const state = deps.createState(text, tab.language, { ...settings, tabSize, insertSpaces }, {
-          topLine: tab.view.topLine,
-          cursorLine: tab.view.cursorLine,
-          cursorColumn: tab.view.cursorColumn,
-        });
+        const state = deps.createState(
+          text,
+          tab.language,
+          { ...settings, tabSize, insertSpaces },
+          {
+            topLine: tab.view.topLine,
+            cursorLine: tab.view.cursorLine,
+            cursorColumn: tab.view.cursorColumn,
+          },
+          { largeFile: isLargeFile(read.bytes) },
+        );
         tabs.update(tab.id, state);
         tabs.markSaved(tab.id, { bytes: read.bytes, modifiedMs: read.modified_ms ?? null });
         reloaded.push(tab.name);

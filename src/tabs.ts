@@ -28,6 +28,8 @@ export interface Tab {
   readonly modifiedMs: number | null;
   readonly bytes: number;
   readonly view: TabView;
+  /** An image or other non-text asset: shown, never edited or written. */
+  readonly asset: boolean;
 }
 
 export interface OpenTabInput {
@@ -46,6 +48,7 @@ export interface OpenTabInput {
   bytes?: number;
   view?: Partial<TabView>;
   activate?: boolean;
+  asset?: boolean;
 }
 
 export interface ClosedTab {
@@ -61,6 +64,7 @@ export interface ClosedTab {
   indentationPinned: boolean;
   modifiedMs: number | null;
   bytes: number;
+  asset: boolean;
 }
 
 export interface TabModel {
@@ -140,6 +144,7 @@ export function createTabModel(options: TabModelOptions = {}): TabModel {
       indentationPinned: tab.indentationPinned,
       modifiedMs: tab.modifiedMs,
       bytes: tab.bytes,
+      asset: tab.asset,
     });
     if (closed.length > closedLimit) closed.splice(0, closed.length - closedLimit);
   };
@@ -177,6 +182,7 @@ export function createTabModel(options: TabModelOptions = {}): TabModel {
         indentationPinned: input.indentationPinned === true,
         modifiedMs: input.modifiedMs ?? null,
         bytes: clampNumber(input.bytes, savedText.length),
+        asset: input.asset === true,
         view: {
           scrollTop: clampNumber(input.view?.scrollTop, EMPTY_VIEW.scrollTop),
           topLine: Math.max(1, clampNumber(input.view?.topLine, EMPTY_VIEW.topLine)),

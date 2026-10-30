@@ -1,6 +1,6 @@
 import type { ExplorerDeps } from "../explorer";
-import { baseName, dirName, joinPath, shortenPath } from "../../files";
-import { assignNames, bytesToBase64, type TransferItem } from "../../transfer";
+import { baseName, dirName, isUnder, joinPath, pathKey, shortenPath } from "../../files";
+import { assignNames, bytesToBase64, uniqueName, type TransferItem } from "../../transfer";
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -133,6 +133,52 @@ export function createOps(ports: OpsPorts) {
     }
   }
 
+  /**
+   * Move a row (or a file already in this tree) into another folder. The
+   * source is renamed, never copied, and a taken name becomes the next free
+   * one exactly as a paste does: nothing is ever overwritten.
+   */
+  async function moveOp(from: string, folder: string): Promise<void> {
+    const root = ports.root();
+    if (root === null) {
+      ports.deps.onNote("Open a folder first");
+      return;
+    }
+    if (folder.length === 0) return;
+    if (pathKey(from) === pathKey(root)) {
+      ports.deps.onNote("The open folder itself cannot be moved from here");
+      return;
+    }
+    if (isUnder(folder, from)) {
+      ports.deps.onNote("A folder cannot be moved inside itself");
+      return;
+    }
+    if (pathKey(folder) === pathKey(dirName(from))) {
+      ports.deps.onNote(`${baseName(from)} is already in that folder`);
+      return;
+    }
+
+    const name = baseName(from);
+    const targetName = uniqueName(name, await takenIn(folder));
+    const target = joinPath(folder, targetName);
+    try {
+      await ports.deps.fs.rename(from, target);
+      ports.deps.onRenamed(from, target);
+      ports.remap(from, target);
+      ports.expanded.add(folder);
+      ports.select(target);
+      ports.deps.onNote(
+        targetName === name
+          ? `moved ${name} to ${shortenPath(folder, 48)}`
+          : `moved ${name} to ${shortenPath(folder, 48)} as ${targetName}`,
+      );
+      await ports.refresh();
+      ports.focusRow(target);
+    } catch (failure) {
+      ports.deps.onError(`Could not move ${name}: ${messageOf(failure)}`);
+    }
+  }
+
   interface Written {
     path: string;
     done: boolean;
@@ -222,6 +268,7 @@ export function createOps(ports: OpsPorts) {
     create: createOp,
     renameSelected: renameOp,
     deleteSelected: removeOp,
+    move: moveOp,
     transfer: transferOp,
   };
 }

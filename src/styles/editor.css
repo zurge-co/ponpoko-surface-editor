@@ -147,6 +147,13 @@
   border-left: 1px solid var(--border);
 }
 
+/* An image tab has no editor beside it: the preview is the whole main area. */
+.main.asset-mode .preview {
+  flex: 1 1 auto;
+  max-width: none;
+  border-left: none;
+}
+
 .preview-header {
   display: flex;
   align-items: center;

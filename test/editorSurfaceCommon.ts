@@ -20,8 +20,18 @@ export const EDITOR_MANIFEST = (await Bun.file(
   new URL("../surface.json", import.meta.url),
 ).json()) as { methods: string[] };
 export const declaredMethods = (): string[] => EDITOR_MANIFEST.methods;
-export const { LARGE_FILE_BYTES, baseName, dirName, formatBytes, isLargeFile, joinPath, relativePath, shortenPath } =
-  await import("../src/files");
+export const {
+  ASSET_IMAGE_EXTENSIONS,
+  LARGE_FILE_BYTES,
+  baseName,
+  dirName,
+  formatBytes,
+  isAssetPath,
+  isLargeFile,
+  joinPath,
+  relativePath,
+  shortenPath,
+} = await import("../src/files");
 export const {
   LANGUAGES,
   isLanguageId,
@@ -72,6 +82,7 @@ export const { compareEntries, createFolderLoads, entryIcon, explorerRows, nameP
   "../src/ui/explorer"
 );
 export const { createOps } = await import("../src/ui/explorer/ops");
+export const { INTERNAL_MOVE_TYPE, moveTargetFolder } = await import("../src/ui/explorer/move");
 export const { attachTransfer, entriesToItems, itemsFromDataTransfer } = await import(
   "../src/ui/explorer/transfer"
 );
@@ -225,6 +236,7 @@ export interface Harness {
   errors: string[];
   notes: string[];
   conflicts: string[];
+  saved: string[];
   stateOptions: Array<{ largeFile?: boolean } | undefined>;
   pick(value: string | null): void;
   answerDialog(...choices: UnsavedChoice[]): void;
@@ -243,6 +255,7 @@ export function harness(): Harness {
   const errors: string[] = [];
   const notes: string[] = [];
   const conflicts: string[] = [];
+  const saved: string[] = [];
   const stateOptions: Array<{ largeFile?: boolean } | undefined> = [];
   const answers: UnsavedChoice[] = [];
   const confirmAnswers: boolean[] = [];
@@ -313,6 +326,7 @@ export function harness(): Harness {
     },
     onError: (message) => errors.push(message),
     onNote: (message) => notes.push(message),
+    onSaved: (path) => saved.push(path),
   });
 
   return {
@@ -324,6 +338,7 @@ export function harness(): Harness {
     errors,
     notes,
     conflicts,
+    saved,
     stateOptions,
     pick: (value) => {
       picked = value;

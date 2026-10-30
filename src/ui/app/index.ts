@@ -11,6 +11,7 @@ import {
   persistedTabs,
   readSession,
   readSettings,
+  rememberRecent,
   writeSession,
   writeSettings,
   type EditorSettings,
@@ -31,7 +32,7 @@ import { createCommandPalette, createPalette, isPaletteOpen } from "../palette";
 import { createPeek } from "../peek";
 import { createPreview } from "../preview";
 import { createQuickOpen } from "../quickopen";
-import { createRenderer } from "./rendering";
+import { createRenderer, type Renderer } from "./rendering";
 import { createSearchPanel } from "../search";
 import { createSettingsSheet } from "../settings";
 import { createSidebar } from "../sidebar";
@@ -72,6 +73,8 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
 
   const api = createApi(options.link);
   const tabs = createTabModel();
+  // Assigned below; the preview's callbacks only reach it after the app is up.
+  let renderer: Renderer;
 
   const chrome = createChrome(options.root, platform);
   const { body, main, editorHost, tabstripHost } = chrome;
@@ -124,7 +127,9 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
     {
       onUpdate(update: EditorUpdate) {
         const active = tabs.active();
-        if (!active) return;
+        // An image tab has no editor; a hidden text editor must not write its
+        // state into the image tab when settings are reconfigured.
+        if (!active || active.asset) return;
         tabs.update(active.id, update.state);
         state.cursor = update.cursor;
         tabs.remember(active.id, { cursorLine: update.cursor.line, cursorColumn: update.cursor.column });
@@ -162,7 +167,7 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
     symbols: (path, text) => api.symbols(path, text),
     active() {
       const tab = tabs.active();
-      if (tab === null || tab.path.length === 0) return null;
+      if (tab === null || tab.path.length === 0 || tab.asset) return null;
       return { path: tab.path, text: tab.state.doc.toString() };
     },
     reveal(line) {
@@ -197,7 +202,7 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
       state.documents?.applyDeleted(path);
     },
     onReveal: (path) => reveal(path),
-    onCopyPath: (text) => copy(text),
+    onCopyPath: (text) => void copy(text),
     onError: showError,
     onNote: showNote,
   });
@@ -215,6 +220,7 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
     openFile: (path) => void opener.openRecentFile(path),
     onError: showError,
     onNote: showNote,
+    onVisibilityChange: () => renderer.title(),
   });
   main.insertBefore(preview.element, chrome.welcome);
 
@@ -224,7 +230,9 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
     api,
     active() {
       const tab = tabs.active();
-      return tab === null || tab.path.length === 0 ? null : { path: tab.path, text: tab.state.doc.toString() };
+      return tab === null || tab.path.length === 0 || tab.asset
+        ? null
+        : { path: tab.path, text: tab.state.doc.toString() };
     },
     root: () => state.workspace,
     cursor: () => ({ line: state.cursor.line, column: state.cursor.column }),
@@ -291,7 +299,7 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
 
   const persistNow = (): void => {
     const activeTab = tabs.active();
-    if (activeTab !== null) tabs.remember(activeTab.id, editor.capture());
+    if (activeTab !== null && !activeTab.asset) tabs.remember(activeTab.id, editor.capture());
     const { tabs: restorable, activePath } = persistedTabs(tabs.list(), tabs.activeId());
     writeSession(storage, {
       version: 1,
@@ -320,7 +328,7 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
   }
 
   const notify: NotifyHost = { showNote, showError };
-  const copy = (text: string): Promise<void> => copyText(notify, text);
+  const copy = (text: string): Promise<boolean> => copyText(notify, text);
   const reveal = (path: string): Promise<void> => revealPath({ ...notify, api }, path);
 
   function updateSettings(next: EditorSettings, message: string): void {
@@ -332,7 +340,7 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
     if (message.length > 0) showNote(message);
   }
 
-  const renderer = createRenderer({
+  renderer = createRenderer({
     chrome,
     platform,
     state,
@@ -399,6 +407,7 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
   const menus: MenuHost = {
     platform,
     tabs,
+    editor,
     documents: () => state.documents,
     run: (command) => void registry.run(command),
     navigation,
@@ -472,6 +481,10 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
     onChange: () => renderer.all(),
     onError: showError,
     onNote: showNote,
+    onSaved: (path) => {
+      state.recentFiles = rememberRecent(state.recentFiles, path);
+      schedulePersist();
+    },
   });
 
   const cleanupLifecycle = installLifecycle({
@@ -489,6 +502,9 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
   const onWindowFocus = (): void => {
     const active = tabs.active();
     if (active !== null && active.path.length > 0) void state.documents?.reconcile(active.id);
+    // A tool may have created, renamed or deleted files while the human was
+    // in another program; the tree should say what is on disk now.
+    void explorer.refresh();
   };
   window.addEventListener("focus", onWindowFocus);
 

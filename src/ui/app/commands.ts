@@ -8,8 +8,11 @@ import {
   indentMore,
   moveLineDown,
   moveLineUp,
+  redo,
+  selectAll,
   toggleBlockComment,
   toggleComment,
+  undo,
 } from "@codemirror/commands";
 import {
   gotoLine,
@@ -66,7 +69,7 @@ export interface CommandHost {
   openFile(): Promise<void>;
   openFolder(): Promise<void>;
   openRecent(): void;
-  copyText(text: string): Promise<void>;
+  copyText(text: string): Promise<boolean>;
   revealPath(path: string): Promise<void>;
 }
 
@@ -122,27 +125,27 @@ export function registerCommands(host: CommandHost): void {
   register("file.close", "Close Tab", "Close the active tab", async () => {
     if (tabs.active() === null) return host.showNote("no tab is open");
     const closed = await documents()?.closeActive();
-    if (closed) editor.focus();
+    if (closed) focusEditorIfText();
   });
   register("file.closeOthers", "Close Other Tabs", "Close every tab except the active one", async () => {
     const active = tabs.active();
     if (active === null) return host.showNote("no tab is open");
-    if (await documents()?.closeOthers(active.id)) editor.focus();
+    if (await documents()?.closeOthers(active.id)) focusEditorIfText();
   });
   register("file.closeAll", "Close All Tabs", "Close every open tab", async () => {
     const closed = await documents()?.closeAll();
-    if (closed) editor.focus();
+    if (closed) focusEditorIfText();
   });
   register("file.reopenClosed", "Reopen Closed Tab", "Bring back the last closed tab", () => {
     documents()?.reopenClosed();
-    editor.focus();
+    focusEditorIfText();
   });
   register("file.copyPath", "Copy Path", "Copy the active file's path", () => {
     const active = tabs.active();
     if (active !== null && active.path.length === 0) {
       return host.showNote(`${active.name} has not been saved yet, so it has no path`);
     }
-    if (active) return host.copyText(active.path);
+    if (active) void host.copyText(active.path);
     return undefined;
   });
   register("file.copyRelativePath", "Copy Relative Path", "Copy the active file's path inside the open folder", () => {
@@ -150,8 +153,7 @@ export function registerCommands(host: CommandHost): void {
     if (active === null) return host.showNote("no file is open");
     if (active.path.length === 0) return host.showNote(`${active.name} has not been saved yet, so it has no path`);
     const workspace = host.workspace();
-    if (workspace === null) return host.copyText(active.path);
-    return host.copyText(relativePath(workspace, active.path));
+    void host.copyText(workspace === null ? active.path : relativePath(workspace, active.path));
   });
   register("file.reveal", "Reveal in File Manager", "Show the active file in Finder or Explorer", () => {
     const active = tabs.active();
@@ -217,12 +219,47 @@ export function registerCommands(host: CommandHost): void {
     else settingsSheet.open(host.settings());
   });
 
+  /**
+   * The editor commands act on a text buffer. An image tab has none, and a
+   * command run from the palette must not edit the hidden document behind it.
+   */
+  const editorGuard = (): boolean => {
+    const active = tabs.active();
+    if (active === null) {
+      host.showNote("no file is open");
+      return false;
+    }
+    if (active.asset) {
+      host.showNote(`${active.name} is an image; it has no editor to run this in`);
+      return false;
+    }
+    return true;
+  };
+
   const command = (run: (view: EditorView) => boolean) => () => {
-    run(editor.view());
+    if (editorGuard()) run(editor.view());
+  };
+
+  const focusEditorIfText = (): void => {
+    const active = tabs.active();
+    if (active !== null && !active.asset) editor.focus();
+  };
+
+  const hasSelection = (view: EditorView): boolean =>
+    view.state.selection.ranges.some((range) => !range.empty);
+
+  /** The selected text, or the current line when nothing is selected. */
+  const selectedText = (view: EditorView): string => {
+    const state = view.state;
+    if (!hasSelection(view)) {
+      return state.doc.lineAt(state.selection.main.head).text;
+    }
+    return state.selection.ranges.map((range) => state.sliceDoc(range.from, range.to)).join("\n");
   };
 
   register("editor.find", "Find in File", "Search the active document", command(openSearchPanel));
   register("editor.replace", "Replace in File", "Search and replace in the active document", () => {
+    if (!editorGuard()) return;
     const view = editor.view();
     openSearchPanel(view);
     requestAnimationFrame(() => {
@@ -230,15 +267,56 @@ export function registerCommands(host: CommandHost): void {
     });
   });
   register("editor.gotoLine", "Go to Line…", "Jump to a line number", command(gotoLine));
+  register("editor.undo", "Undo", "Undo the last change in this file", command(undo));
+  register("editor.redo", "Redo", "Redo the last undone change in this file", command(redo));
+  register("editor.selectAll", "Select All", "Select the whole file", command(selectAll));
+  register("editor.copy", "Copy", "Copy the selection, or the current line", async () => {
+    if (!editorGuard()) return;
+    await host.copyText(selectedText(editor.view()));
+    // The clipboard fallback uses a temporary textarea; keep the editor's
+    // caret where it was once that is gone.
+    editor.focus();
+  });
+  register("editor.cut", "Cut", "Cut the selection, or the current line", async () => {
+    if (!editorGuard()) return;
+    const view = editor.view();
+    // Never remove text that did not reach the clipboard first.
+    if (!(await host.copyText(selectedText(view)))) return;
+    if (hasSelection(view)) {
+      view.dispatch({ ...view.state.replaceSelection(""), userEvent: "delete.cut" });
+    } else {
+      deleteLine(view);
+    }
+    view.focus();
+  });
+  register("editor.paste", "Paste", "Paste text from the clipboard at the cursor", async () => {
+    if (!editorGuard()) return;
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      host.showNote("this webview will not let the editor read the clipboard; use the paste key instead");
+      return;
+    }
+    if (text.length === 0) {
+      host.showNote("the clipboard has no text to paste");
+      return;
+    }
+    const view = editor.view();
+    view.dispatch({ ...view.state.replaceSelection(text), userEvent: "input.paste" });
+    view.focus();
+  });
   register("editor.toggleComment", "Toggle Line Comment", "Comment or uncomment the selected lines", () => {
+    if (!editorGuard()) return;
     const active = tabs.active();
-    if (!toggleComment(editor.view()) && active) {
+    if (active !== null && !toggleComment(editor.view())) {
       host.showNote(`${languageLabel(active.language)} has no line comment syntax in this editor`);
     }
   });
   register("editor.toggleBlockComment", "Toggle Block Comment", "Comment or uncomment the selection as a block", () => {
+    if (!editorGuard()) return;
     const active = tabs.active();
-    if (!toggleBlockComment(editor.view()) && active) {
+    if (active !== null && !toggleBlockComment(editor.view())) {
       host.showNote(`${languageLabel(active.language)} has no block comment syntax in this editor`);
     }
   });
@@ -271,6 +349,7 @@ export function registerCommands(host: CommandHost): void {
   register("editor.formatDocument", "Format Document", "Format the active buffer with Prettier, rustfmt or taplo", () => {
     const active = tabs.active();
     if (active === null) return host.showNote("no file is open");
+    if (active.asset) return host.showNote(`${active.name} is an image; it has no text to format`);
     const before = active.state.doc.toString();
     const caret = editor.capture();
     const work = async (): Promise<void> => {
@@ -322,6 +401,9 @@ export function registerCommands(host: CommandHost): void {
   register("preview.toggle", "Toggle Preview", "Preview Markdown, HTML or an image beside the editor", () => {
     const active = tabs.active();
     if (active === null) return host.showNote("no file is open");
+    if (active.asset) {
+      return host.showNote(`${active.name} is already shown as an image; switch to a text tab to preview beside it`);
+    }
     if (!canPreview(active.path)) return host.showNote(noPreviewSentence(active.path));
     host.preview.update({ path: active.path, text: active.state.doc.toString(), dirty: tabs.dirty(active) });
     host.preview.toggle();

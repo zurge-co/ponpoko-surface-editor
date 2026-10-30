@@ -84,24 +84,47 @@ export function createRenderer(host: RendererHost): Renderer {
   function all(): void {
     title();
     host.tabStrip.render(tabs.list(), tabs.activeId(), (tab) => tabs.dirty(tab));
+    host.tabStrip.scrollActiveIntoView();
     renderWelcome(
       { section: chrome.welcome, editorHost: chrome.editorHost, recent: chrome.welcomeRecent },
       { tabCount: tabs.list().length, recentFolders: state.recentFolders, recentFiles: state.recentFiles },
       { openFolder: host.openFolder, openFile: host.openFile },
     );
     const active = tabs.active();
-    if (active) {
-      const wasHidden = chrome.editorHost.hidden;
+    const asset = active !== null && active.asset;
+    // An image has no buffer to edit. The preview pane takes the whole main
+    // area instead of showing an empty editor.
+    chrome.main.classList.toggle("asset-mode", asset);
+    const wasHidden = chrome.editorHost.hidden;
+    if (active !== null && !asset) {
+      chrome.editorHost.hidden = false;
       editor.show(active, state.settings);
       state.cursor = cursorOf(active.state);
       if (wasHidden) editor.measure();
+    } else {
+      chrome.editorHost.hidden = true;
     }
     host.explorer.setActivePath(active !== null && active.path.length > 0 ? active.path : null);
     const previewTab: PreviewTab | null =
       active === null
         ? null
-        : { path: active.path, text: active.state.doc.toString(), dirty: tabs.dirty(active) };
-    preview.update(previewTab);
+        : {
+            path: active.path,
+            text: asset ? "" : active.state.doc.toString(),
+            dirty: tabs.dirty(active),
+            modifiedMs: active.modifiedMs,
+          };
+    if (active !== null && asset) {
+      preview.showAsset({
+        path: active.path,
+        text: "",
+        dirty: false,
+        modifiedMs: active.modifiedMs,
+      });
+    } else {
+      preview.endAsset();
+      preview.update(previewTab);
+    }
     syncOutline();
     status();
     banner();

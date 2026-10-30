@@ -77,7 +77,7 @@ export function createOpener(host: OpenerHost): Opener {
     const active = tabs.active();
     if (active && active.id !== before) {
       addRecentFile(active.path);
-      editor.focus();
+      if (!active.asset) editor.focus();
       host.persistNow();
     }
   }
@@ -88,7 +88,7 @@ export function createOpener(host: OpenerHost): Opener {
     const tab = await documents.openPath(path);
     if (tab) {
       addRecentFile(path);
-      editor.focus();
+      if (!tab.asset) editor.focus();
       host.persistNow();
       void explorer.revealActive();
     }

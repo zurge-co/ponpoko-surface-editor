@@ -25,16 +25,20 @@ export function createDiskWatcher(
   watch: WatchState,
   askConflict: (kind: ConflictKind, name: string) => Promise<ConflictChoice>,
 ) {
-  async function diskMovedOn(tab: Tab): Promise<{ changed: boolean; exists: boolean; modifiedMs: number | null }> {
-    if (tab.path.length === 0) return { changed: false, exists: true, modifiedMs: null };
+  async function diskMovedOn(
+    tab: Tab,
+  ): Promise<{ changed: boolean; exists: boolean; modifiedMs: number | null; bytes: number }> {
+    if (tab.path.length === 0) return { changed: false, exists: true, modifiedMs: null, bytes: 0 };
     try {
       const info = await ports.api.stat(tab.path);
       const disk = info.modified_ms ?? null;
-      if (!info.exists) return { changed: true, exists: false, modifiedMs: disk };
-      if (tab.modifiedMs === null || disk === null) return { changed: false, exists: true, modifiedMs: disk };
-      return { changed: disk !== tab.modifiedMs, exists: true, modifiedMs: disk };
+      if (!info.exists) return { changed: true, exists: false, modifiedMs: disk, bytes: info.bytes };
+      if (tab.modifiedMs === null || disk === null) {
+        return { changed: false, exists: true, modifiedMs: disk, bytes: info.bytes };
+      }
+      return { changed: disk !== tab.modifiedMs, exists: true, modifiedMs: disk, bytes: info.bytes };
     } catch {
-      return { changed: false, exists: true, modifiedMs: null };
+      return { changed: false, exists: true, modifiedMs: null, bytes: 0 };
     }
   }
 
@@ -93,9 +97,21 @@ export function createDiskWatcher(
       if (current === null) return "skipped";
       if (!disk.exists) {
         ports.onError(
-          `${current.name} is no longer on disk. This tab still holds the text that was last saved there; Save As writes it somewhere else.`,
+          current.asset
+            ? `${current.name} is no longer on disk. The preview has nothing to draw.`
+            : `${current.name} is no longer on disk. This tab still holds the text that was last saved there; Save As writes it somewhere else.`,
         );
         return "missing";
+      }
+      if (current.asset) {
+        // An image tab has no buffer to lose, so following the disk is the
+        // only sensible answer. The new size and timestamp make the preview
+        // read the bytes again.
+        ports.tabs.markSaved(current.id, { bytes: disk.bytes, modifiedMs: disk.modifiedMs });
+        watch.acknowledged.delete(current.id);
+        ports.onNote(`${current.name} was reloaded: it changed on disk`);
+        ports.onChange();
+        return "reloaded";
       }
       if (!ports.tabs.dirty(current)) {
         const reloaded = await reloadFromDisk(current);

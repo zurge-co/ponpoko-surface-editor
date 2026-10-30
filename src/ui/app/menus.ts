@@ -1,4 +1,7 @@
+import { redoDepth, undoDepth } from "@codemirror/commands";
+
 import type { Documents } from "../../documents";
+import type { SurfaceEditor } from "../../editor";
 import { keyLabel, type Platform } from "../../keymap";
 import type { Navigator } from "../../navigation";
 import type { Tab, TabModel } from "../../tabs";
@@ -7,11 +10,12 @@ import { navigationMenuEntries, showMenu, type MenuEntry } from "../menu";
 export interface MenuHost {
   platform: Platform;
   tabs: TabModel;
+  editor: SurfaceEditor;
   documents(): Documents | null;
   run(command: string): void;
   navigation: Navigator;
   positionAt(clientX: number, clientY: number): { line: number; column: number } | null;
-  copyText(text: string): Promise<void>;
+  copyText(text: string): Promise<boolean>;
   revealPath(path: string): Promise<void>;
 }
 
@@ -30,6 +34,7 @@ function tabMenuEntries(tab: Tab, host: MenuHost): MenuEntry[] {
       label: "Save As…",
       keybinding: keyLabel("Mod-Shift-s", host.platform),
       run: () => void host.documents()?.saveAs(tab.id),
+      disabled: tab.asset,
     },
     {
       type: "item",
@@ -96,6 +101,46 @@ export function showEditorMenu(at: { x: number; y: number }, host: MenuHost): vo
       label: "Revert File",
       run: () => void host.documents()?.revert(active.id),
       disabled: active.path.length === 0 || !host.tabs.dirty(active),
+    },
+    { type: "separator" },
+    {
+      type: "item",
+      label: "Undo",
+      keybinding: keyLabel("Mod-z", host.platform),
+      run: () => void host.run("editor.undo"),
+      disabled: undoDepth(host.editor.view().state) === 0,
+    },
+    {
+      type: "item",
+      label: "Redo",
+      keybinding: keyLabel(host.platform === "mac" ? "Mod-Shift-z" : "Ctrl-y", host.platform),
+      run: () => void host.run("editor.redo"),
+      disabled: redoDepth(host.editor.view().state) === 0,
+    },
+    { type: "separator" },
+    {
+      type: "item",
+      label: "Cut",
+      keybinding: keyLabel("Mod-x", host.platform),
+      run: () => void host.run("editor.cut"),
+    },
+    {
+      type: "item",
+      label: "Copy",
+      keybinding: keyLabel("Mod-c", host.platform),
+      run: () => void host.run("editor.copy"),
+    },
+    {
+      type: "item",
+      label: "Paste",
+      keybinding: keyLabel("Mod-v", host.platform),
+      run: () => void host.run("editor.paste"),
+    },
+    {
+      type: "item",
+      label: "Select All",
+      keybinding: keyLabel("Mod-a", host.platform),
+      run: () => void host.run("editor.selectAll"),
     },
     { type: "separator" },
     {

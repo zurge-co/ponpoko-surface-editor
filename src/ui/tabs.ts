@@ -106,11 +106,11 @@ export function createTabStrip(handlers: TabStripHandlers): TabStrip {
         holder.setAttribute("aria-controls", "editor-region");
         holder.setAttribute("aria-label", `${tab.name}${isDirty ? ", unsaved changes" : ""}`);
         holder.tabIndex = isActive ? 0 : -1;
-        holder.title = `${tab.path}\n${languageLabel(tab.language)}${isDirty ? " — unsaved changes" : ""}`;
+        holder.title = `${tab.path}\n${tab.asset ? "Image" : languageLabel(tab.language)}${isDirty ? " — unsaved changes" : ""}`;
 
         const icon = document.createElement("span");
         icon.className = "tab-icon";
-        icon.append(createIcon(iconFor(tab.language), 13));
+        icon.append(createIcon(tab.asset ? "file-image" : iconFor(tab.language), 13));
 
         const name = document.createElement("span");
         name.className = "tab-name";

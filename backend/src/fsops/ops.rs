@@ -159,13 +159,38 @@ pub(crate) fn create(params: &Value) -> Result<Value, RpcError> {
     Ok(value)
 }
 
-fn copy_tree(from: &Path, to: &Path, files: &mut u64, bytes: &mut u64) -> std::io::Result<()> {
-    let metadata = std::fs::symlink_metadata(from)?;
+const MAX_COPY_DEPTH: usize = 64;
+
+fn copy_tree(
+    from: &Path,
+    to: &Path,
+    files: &mut u64,
+    bytes: &mut u64,
+    depth: usize,
+) -> std::io::Result<()> {
+    if depth > MAX_COPY_DEPTH {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "{} is nested more than {MAX_COPY_DEPTH} folders deep, or its links form a loop",
+                from.display()
+            ),
+        ));
+    }
+    // Follow links: a symlinked folder is copied as the folder it names, so a
+    // paste of a folder holding links does not stop at the first one.
+    let metadata = std::fs::metadata(from)?;
     if metadata.is_dir() {
         std::fs::create_dir(to)?;
         for entry in std::fs::read_dir(from)? {
             let entry = entry?;
-            copy_tree(&entry.path(), &to.join(entry.file_name()), files, bytes)?;
+            copy_tree(
+                &entry.path(),
+                &to.join(entry.file_name()),
+                files,
+                bytes,
+                depth + 1,
+            )?;
         }
         return Ok(());
     }
@@ -191,15 +216,37 @@ pub(crate) fn copy(params: &Value) -> Result<Value, RpcError> {
         .ok_or_else(|| invalid_params("fs.copy needs a non-empty 'to' path"))?;
     let to = PathBuf::from(to);
 
-    let metadata = std::fs::symlink_metadata(&from)
+    // Copying a pipe or device can block forever; only files and folders are
+    // things a paste into a folder can mean.
+    let followed = std::fs::metadata(&from)
         .map_err(|e| internal(format!("{} could not be copied: {e}", from.display())))?;
-    let is_dir = metadata.is_dir();
-    if is_dir && to.starts_with(&from) {
+    if !followed.is_file() && !followed.is_dir() {
         return Err(invalid_params(format!(
-            "{} cannot be copied inside itself ({})",
-            from.display(),
-            to.display()
+            "{} is not a regular file or folder; it cannot be copied",
+            from.display()
         )));
+    }
+    // A link to a folder is copied as the folder it names, so the answer says
+    // "folder" for it too.
+    let is_dir = followed.is_dir();
+    if is_dir {
+        let lexical_inside = to.starts_with(&from);
+        // A folder reached through a symlink is copied as its target, so the
+        // comparison has to be made against the real folder too.
+        let real_inside = match (
+            std::fs::canonicalize(&from),
+            to.parent().and_then(|parent| std::fs::canonicalize(parent).ok()),
+        ) {
+            (Ok(source), Some(target_parent)) => target_parent.starts_with(&source),
+            _ => false,
+        };
+        if lexical_inside || real_inside {
+            return Err(invalid_params(format!(
+                "{} cannot be copied inside itself ({})",
+                from.display(),
+                to.display()
+            )));
+        }
     }
     if to.exists() {
         return Err(invalid_params(format!(
@@ -220,7 +267,7 @@ pub(crate) fn copy(params: &Value) -> Result<Value, RpcError> {
 
     let mut files = 0u64;
     let mut bytes = 0u64;
-    copy_tree(&from, &to, &mut files, &mut bytes).map_err(|e| {
+    copy_tree(&from, &to, &mut files, &mut bytes, 0).map_err(|e| {
         internal(format!(
             "{} could not be copied to {}: {e}",
             from.display(),
@@ -293,7 +340,17 @@ pub(crate) fn rename(params: &Value) -> Result<Value, RpcError> {
             to.display()
         )));
     }
-    if to.exists() {
+    // On a case-insensitive filesystem `to.exists()` is true for a rename that
+    // only changes the case (`a.txt` -> `A.txt`). That is the same directory
+    // entry, not another file, and must be allowed. A symlink is never
+    // treated as the file it points at: renaming the link has to move the link.
+    let same_entry = !from_meta.file_type().is_symlink()
+        && to.exists()
+        && match (std::fs::canonicalize(&from), std::fs::canonicalize(&to)) {
+            (Ok(left), Ok(right)) => left == right,
+            _ => false,
+        };
+    if to.exists() && !same_entry {
         return Err(invalid_params(format!(
             "{} already exists — choose another name",
             to.display()
@@ -311,7 +368,25 @@ pub(crate) fn rename(params: &Value) -> Result<Value, RpcError> {
     }
 
     let is_dir = from_meta.is_dir();
-    std::fs::rename(&from, &to).map_err(|e| {
+    let moved = if same_entry {
+        // Moving aside first keeps a case-only rename working on systems
+        // (Windows) whose rename refuses a destination that differs only in
+        // case. If the second step fails the first is undone.
+        let temporary = temp_sibling(&from, "rename");
+        match std::fs::rename(&from, &temporary) {
+            Ok(()) => match std::fs::rename(&temporary, &to) {
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    let _ = std::fs::rename(&temporary, &from);
+                    Err(error)
+                }
+            },
+            Err(error) => Err(error),
+        }
+    } else {
+        std::fs::rename(&from, &to)
+    };
+    moved.map_err(|e| {
         internal(format!(
             "{} could not be renamed to {}: {e}",
             from.display(),

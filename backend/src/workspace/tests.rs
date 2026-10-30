@@ -261,3 +261,22 @@ fn symbols_method_reads_a_file_and_reports_its_language() {
     assert_eq!(answer["language"], "rust");
     assert_eq!(answer["symbols"][0]["name"], "main");
 }
+
+#[test]
+fn search_keeps_the_documented_two_thousand_matches_unless_asked_for_fewer() {
+    let root = temp_project("search-limit");
+    std::fs::write(root.join("src/many.txt"), "needle\n".repeat(600)).expect("many");
+    let workspace = Workspace::new();
+
+    let answer = workspace
+        .search(&json!({ "root": root, "query": "needle" }))
+        .expect("default limit");
+    assert_eq!(answer["matches"].as_array().expect("matches").len(), 600);
+    assert_eq!(answer["truncated"], false);
+
+    let answer = workspace
+        .search(&json!({ "root": root, "query": "needle", "max_results": 10 }))
+        .expect("a lower limit");
+    assert_eq!(answer["matches"].as_array().expect("matches").len(), 10);
+    assert_eq!(answer["truncated"], true);
+}

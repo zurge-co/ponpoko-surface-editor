@@ -48,6 +48,9 @@ export function createPreview(deps: PreviewDeps): Preview {
   let imagePath: string | null = null;
   let zoom: number | "fit" = "fit";
   let renderedText: string | null = null;
+  let renderedModifiedMs: number | null = null;
+  let assetMode = false;
+  let resumeWanted = false;
   let sequence = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let imageElement: HTMLImageElement | null = null;
@@ -95,6 +98,8 @@ export function createPreview(deps: PreviewDeps): Preview {
     title.title = tab.path;
     badge.textContent = tab.dirty ? "unsaved buffer" : "";
     badge.hidden = !tab.dirty;
+    // An image tab is the main view; there is no side preview to close.
+    closeButton.hidden = assetMode;
     showImageControls(kind === "image");
   }
 
@@ -163,15 +168,22 @@ export function createPreview(deps: PreviewDeps): Preview {
       sequence += 1;
       body.replaceChildren();
       renderedText = null;
+      renderedModifiedMs = null;
       imageElement = null;
       return;
     }
     const token = (sequence += 1);
     updateChrome(kind);
-    const sameDocument = renderedText === next.text && imagePath === next.path;
+    // Text is compared as a buffer; an image has no buffer, so its timestamp
+    // on disk is what says whether the bytes need reading again.
+    const sameDocument =
+      renderedText === next.text &&
+      imagePath === next.path &&
+      (kind !== "image" || renderedModifiedMs === (next.modifiedMs ?? null));
     if (sameDocument) return;
     renderedText = next.text;
     imagePath = next.path;
+    renderedModifiedMs = kind === "image" ? (next.modifiedMs ?? null) : null;
     imageElement = null;
     if (kind === "image") setZoom("fit");
     try {
@@ -222,8 +234,10 @@ export function createPreview(deps: PreviewDeps): Preview {
   body.addEventListener("click", onBodyClick);
 
   closeButton.addEventListener("click", () => {
+    if (assetMode) return;
     wanted = false;
     void renderNow();
+    deps.onVisibilityChange?.();
   });
   zoomIn.addEventListener("click", () => {
     const base = zoom === "fit" ? 1 : zoom;
@@ -247,7 +261,14 @@ export function createPreview(deps: PreviewDeps): Preview {
         void renderNow();
         return;
       }
-      if (!wanted) return;
+      if (assetMode) {
+        // The renderer drives the image view through showAsset.
+        return;
+      }
+      if (!wanted) {
+        if (!root.hidden) void renderNow();
+        return;
+      }
       if (next.path !== previousPath || kindChanged) {
         void renderNow();
         return;
@@ -255,8 +276,35 @@ export function createPreview(deps: PreviewDeps): Preview {
       updateChrome(current);
       if (next.text !== renderedText) schedule();
     },
+    showAsset(next) {
+      const entering = !assetMode;
+      if (entering) {
+        resumeWanted = wanted;
+        assetMode = true;
+      }
+      const changed = entering || next.path !== imagePath || next.modifiedMs !== renderedModifiedMs;
+      wanted = true;
+      tab = next;
+      current = kindOf(next);
+      root.hidden = current === null;
+      updateChrome(current);
+      if (changed) renderedText = null;
+      void renderNow();
+      if (entering) deps.onVisibilityChange?.();
+    },
+    endAsset() {
+      if (!assetMode) return;
+      assetMode = false;
+      wanted = resumeWanted;
+      closeButton.hidden = false;
+      deps.onVisibilityChange?.();
+    },
     schedule,
     toggle() {
+      if (assetMode) {
+        deps.onNote("this image is shown in the whole pane; switch to a text tab to preview beside it");
+        return;
+      }
       if (tab === null || kindOf(tab) === null) {
         deps.onNote(
           tab === null
@@ -267,11 +315,13 @@ export function createPreview(deps: PreviewDeps): Preview {
       }
       wanted = !wanted;
       void renderNow();
+      deps.onVisibilityChange?.();
     },
     close() {
-      if (!wanted) return;
+      if (assetMode || !wanted) return;
       wanted = false;
       void renderNow();
+      deps.onVisibilityChange?.();
     },
     isOpen: () => wanted && tab !== null && kindOf(tab) !== null,
     kind: () => current,

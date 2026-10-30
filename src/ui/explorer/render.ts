@@ -14,6 +14,13 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+export interface TreeMovePorts {
+  root(): string | null;
+  begin(path: string, event: DragEvent): void;
+  over(row: ExplorerRow, event: DragEvent): boolean;
+  drop(row: ExplorerRow, event: DragEvent): boolean;
+}
+
 export interface TreePorts {
   tree: HTMLElement;
   filterRow: HTMLElement;
@@ -32,6 +39,7 @@ export interface TreePorts {
   showRowMenu(row: ExplorerRow, event: MouseEvent): void;
   activePath(): string | null;
   focusRow(path: string | null): void;
+  move: TreeMovePorts;
 }
 
 export function rowNode(tree: HTMLElement, path: string): HTMLElement | null {
@@ -113,6 +121,25 @@ export function selectedRow(rows: ExplorerRow[], selected: string | null): Explo
         });
         node.addEventListener("focus", () => {
           ports.select(row.path);
+        });
+        if (row.path !== ports.root()) {
+          node.draggable = true;
+          node.addEventListener("dragstart", (event) => {
+            ports.select(row.path);
+            ports.move.begin(row.path, event);
+          });
+        }
+        node.addEventListener("dragover", (event) => {
+          if (!ports.move.over(row, event)) return;
+          event.preventDefault();
+          node.classList.add("drop-target");
+        });
+        node.addEventListener("dragleave", () => {
+          node.classList.remove("drop-target");
+        });
+        node.addEventListener("drop", (event) => {
+          node.classList.remove("drop-target");
+          ports.move.drop(row, event);
         });
         return node;
       }),

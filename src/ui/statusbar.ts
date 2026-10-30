@@ -103,6 +103,7 @@ export function createStatusBar(handlers: StatusBarHandlers): StatusBar {
   const encoding = element("span", "status-item");
   encoding.textContent = "UTF-8";
   encoding.title = "Files are read and written as UTF-8 text";
+  let imageOption: HTMLOptionElement | null = null;
 
   const left = element("div", "status-group");
   left.append(language, indentation, eol, encoding);
@@ -128,12 +129,19 @@ export function createStatusBar(handlers: StatusBarHandlers): StatusBar {
       indentation.disabled = !hasTab;
       eol.disabled = !hasTab;
 
+      if (imageOption !== null && (tab === null || !tab.asset)) {
+        imageOption.remove();
+        imageOption = null;
+      }
+
       if (!hasTab) {
         language.value = "text";
         indentation.textContent = model.settings.insertSpaces
           ? `Spaces: ${model.settings.tabSize}`
           : `Tab Size: ${model.settings.tabSize}`;
         eol.value = "lf";
+        encoding.textContent = "UTF-8";
+        encoding.title = "Files are read and written as UTF-8 text";
         selection.textContent = "";
         cursor.textContent = "";
         size.textContent = "";
@@ -141,6 +149,34 @@ export function createStatusBar(handlers: StatusBarHandlers): StatusBar {
         return;
       }
 
+      if (tab.asset) {
+        if (imageOption === null) {
+          imageOption = document.createElement("option");
+          imageOption.value = "__image";
+          imageOption.textContent = "Image";
+          language.append(imageOption);
+        }
+        language.value = "__image";
+        language.disabled = true;
+        language.title = "An image is shown in the preview; it has no language mode";
+        indentation.disabled = true;
+        indentation.textContent = "Image";
+        indentation.title = "An image is shown, not edited";
+        eol.disabled = true;
+        eol.value = "lf";
+        eol.title = "An image is written by the tool that made it, not by this editor";
+        encoding.textContent = "Read-only image";
+        encoding.title = "Images are drawn from disk and never written";
+        selection.textContent = "";
+        cursor.textContent = "";
+        size.textContent = formatBytes(tab.bytes);
+        size.title = "Size on disk";
+        note.textContent = model.note;
+        return;
+      }
+
+      encoding.textContent = "UTF-8";
+      encoding.title = "Files are read and written as UTF-8 text";
       const languageValue = tab.language;
       if (language.value !== languageValue) language.value = languageValue;
       language.title = `Language mode: ${languageLabel(languageValue)}${tab.languageOverridden ? " (chosen by you)" : ""}`;

@@ -96,6 +96,20 @@
   outline-offset: -1px;
 }
 
+.tree-row.drop-target {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+
+.tree.is-move-target {
+  outline: 1px dashed var(--accent);
+  outline-offset: -3px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
 .tree-row.active-tab .tree-name {
   color: var(--accent-soft);
 }

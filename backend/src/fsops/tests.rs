@@ -310,3 +310,158 @@ fn a_byte_array_written_as_base64_lands_byte_for_byte() {
     assert!(error.message.contains("base64"), "{}", error.message);
     assert!(!dir.join("x.bin").exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn a_save_through_a_symlink_edits_the_file_it_names_and_keeps_the_link() {
+    use std::os::unix::fs::symlink;
+
+    let dir = temp_dir("symlink-save");
+    let real = dir.join("real.txt");
+    std::fs::write(&real, "original\n").expect("the real file");
+    let link = dir.join("link.txt");
+    symlink("real.txt", &link).expect("a relative symlink");
+
+    let answer = write(&json!({ "path": link, "content": "edited\n" })).expect("write");
+    assert_eq!(answer["path"], link.to_string_lossy().as_ref());
+
+    let metadata = std::fs::symlink_metadata(&link).expect("the link still exists");
+    assert!(
+        metadata.file_type().is_symlink(),
+        "saving replaced the symlink with a regular file"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&real).expect("the real file"),
+        "edited\n"
+    );
+    let leftovers: Vec<String> = std::fs::read_dir(&dir)
+        .expect("dir")
+        .map(|entry| entry.expect("entry").file_name().to_string_lossy().to_string())
+        .filter(|name| name.ends_with(".tmp"))
+        .collect();
+    assert!(leftovers.is_empty(), "temporary files left behind: {leftovers:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_save_through_a_dangling_symlink_creates_the_file_it_names() {
+    use std::os::unix::fs::symlink;
+
+    let dir = temp_dir("dangling-save");
+    let link = dir.join("link.txt");
+    symlink("created.txt", &link).expect("a dangling symlink");
+
+    write(&json!({ "path": link, "content": "made\n" })).expect("write");
+    assert!(std::fs::symlink_metadata(&link)
+        .expect("the link still exists")
+        .file_type()
+        .is_symlink());
+    assert_eq!(
+        std::fs::read_to_string(dir.join("created.txt")).expect("the target was created"),
+        "made\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_read_only_file_is_refused_instead_of_being_replaced_by_a_save() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = temp_dir("read-only");
+    let file = dir.join("locked.txt");
+    std::fs::write(&file, "keep\n").expect("seed");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).expect("lock");
+
+    let error = write(&json!({ "path": file, "content": "new\n" })).expect_err("read-only is refused");
+    assert!(error.message.contains("read-only"), "{}", error.message);
+    assert_eq!(std::fs::read_to_string(&file).expect("untouched"), "keep\n");
+
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).expect("unlock");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_pipe_is_not_read_as_text() {
+    let dir = temp_dir("fifo");
+    let pipe = dir.join("pipe");
+    // mkfifo exists on macOS and Linux; if it is missing, this test has
+    // nothing to prove and returns instead of failing the suite.
+    let made = std::process::Command::new("mkfifo").arg(&pipe).status();
+    if !matches!(made, Ok(status) if status.success()) {
+        return;
+    }
+
+    let error = read(&json!({ "path": pipe })).expect_err("a pipe is not text");
+    assert_eq!(error.code, -32602);
+    assert!(error.message.contains("regular file"), "{}", error.message);
+
+    let error = read_asset(&json!({ "path": pipe })).expect_err("a pipe is not an asset");
+    assert!(error.message.contains("regular file"), "{}", error.message);
+}
+
+#[test]
+fn a_rename_that_only_changes_the_case_is_allowed() {
+    let dir = temp_dir("case-rename");
+    let from = dir.join("name.txt");
+    std::fs::write(&from, "x\n").expect("seed");
+    let to = dir.join("Name.txt");
+
+    let answer = rename(&json!({ "path": from, "to": to })).expect("a case-only rename");
+    assert_eq!(answer["to"], to.to_string_lossy().as_ref());
+
+    let names: Vec<String> = std::fs::read_dir(&dir)
+        .expect("dir")
+        .map(|entry| entry.expect("entry").file_name().to_string_lossy().to_string())
+        .collect();
+    assert!(names.contains(&"Name.txt".to_string()), "{names:?}");
+    assert!(!names.contains(&"name.txt".to_string()), "{names:?}");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("Name.txt")).expect("the renamed file"),
+        "x\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_folder_holding_a_symlink_is_copied_through_it() {
+    use std::os::unix::fs::symlink;
+
+    let dir = temp_dir("copy-symlink");
+    let source = dir.join("source");
+    std::fs::create_dir_all(source.join("real")).expect("real folder");
+    std::fs::write(source.join("real").join("inside.txt"), "inside\n").expect("file");
+    symlink("real", source.join("linked")).expect("symlinked folder");
+    symlink("real/inside.txt", source.join("linked-file.txt")).expect("symlinked file");
+
+    let clone = dir.join("clone");
+    let answer = copy(&json!({ "from": source, "to": clone })).expect("copy through links");
+    // The real file, the copy through the linked folder, and the copy through
+    // the linked file are three separate files in the clone.
+    assert_eq!(answer["files"], 3);
+    assert_eq!(
+        std::fs::read_to_string(clone.join("linked").join("inside.txt")).expect("through the folder link"),
+        "inside\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(clone.join("linked-file.txt")).expect("through the file link"),
+        "inside\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_linked_folder_cannot_be_copied_inside_the_folder_it_names() {
+    use std::os::unix::fs::symlink;
+
+    let dir = temp_dir("copy-link-loop");
+    let real = dir.join("real");
+    std::fs::create_dir_all(&real).expect("real folder");
+    std::fs::write(real.join("a.txt"), "a\n").expect("file");
+    let link = dir.join("link");
+    symlink("real", &link).expect("symlink");
+
+    let error = copy(&json!({ "from": link, "to": real.join("inner"), }))
+        .expect_err("a copy into the linked folder is refused");
+    assert!(error.message.contains("inside itself"), "{}", error.message);
+    assert!(!real.join("inner").exists());
+}
