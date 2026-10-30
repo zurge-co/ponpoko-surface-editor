@@ -94,6 +94,7 @@ function doorOver(options: {
   root?: string | null;
   target?: string | null;
   element?: ReturnType<typeof fakeElement>;
+  onRead?: () => void;
 }) {
   const notes: string[] = [];
   const errors: string[] = [];
@@ -133,7 +134,10 @@ function doorOver(options: {
   const ui = options.element ?? fakeElement();
   const pasteDoor = createPasteDoor({
     element: ui.element,
-    read: async () => answer(options.answer ?? {}),
+    read: async () => {
+      options.onRead?.();
+      return answer(options.answer ?? {});
+    },
     onDrop: (handler) => {
       drops.push(handler);
       return () => {
@@ -383,6 +387,67 @@ describe("the paste door writes real files and never overwrites", () => {
     await pasteDoor.pasteFromClipboard();
     expect(calls).toEqual([]);
     expect(errors).toEqual(["Could not read the clipboard: no clipboard access on this machine"]);
+  });
+
+  test("⌘V pressed over the tree writes the clipboard's file into the selected folder", async () => {
+    const calls: Call[] = [];
+    const { ui, notes } = doorOver({ calls, target: "/w/src" });
+
+    let prevented = 0;
+    ui.fire("paste", {
+      target: { tagName: "DIV", isContentEditable: false },
+      clipboardData: {
+        types: ["Files"],
+        files: [{ name: "shot.png" }],
+        items: [
+          {
+            kind: "file",
+            webkitGetAsEntry: () => null,
+            getAsFile: () => ({
+              name: "shot.png",
+              arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+            }),
+          },
+        ],
+        getData: () => "",
+      },
+      preventDefault: () => {
+        prevented += 1;
+      },
+    });
+    await settle();
+
+    expect(prevented).toBe(1);
+    expect(calls).toEqual([{ call: "writeAsset", path: "/w/src/shot.png", detail: "AQID" }]);
+    expect(notes).toEqual(["pasted 1 item"]);
+  });
+
+  test("⌘V with a screenshot on the clipboard asks the host, then writes its bytes", async () => {
+    const calls: Call[] = [];
+    let asked = 0;
+    const { ui, notes, errors } = doorOver({
+      calls,
+      answer: { kind: "image", name: "shot.png", base64: "iVBORw==" },
+      onRead: () => {
+        asked += 1;
+      },
+    });
+
+    let prevented = 0;
+    ui.fire("paste", {
+      target: { tagName: "DIV", isContentEditable: false },
+      clipboardData: { types: [], files: [], items: [], getData: () => "" },
+      preventDefault: () => {
+        prevented += 1;
+      },
+    });
+    await settle();
+
+    expect(asked).toBe(1);
+    expect(prevented).toBe(1);
+    expect(calls).toEqual([{ call: "writeAsset", path: "/w/shot.png", detail: "iVBORw==" }]);
+    expect(errors).toEqual([]);
+    expect(notes).toEqual(["pasted 1 item"]);
   });
 
   test("⌘V typed into a name field stays in the field instead of pasting into the tree", async () => {
