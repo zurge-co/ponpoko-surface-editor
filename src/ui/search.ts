@@ -30,6 +30,21 @@ export function searchOptions(root: string, state: SearchState): SearchOptions {
   };
 }
 
+/**
+ * Two searches are the same only when every option is the same. The query
+ * alone is not enough: toggling case or regex must invalidate the count a
+ * Replace All is about to show.
+ */
+export function searchStateKey(state: SearchState): string {
+  return JSON.stringify([
+    state.query,
+    state.regex,
+    state.caseSensitive,
+    state.wholeWord,
+    state.includeHidden,
+  ]);
+}
+
 export interface SearchFileGroup {
   path: string;
   relative: string;
@@ -194,6 +209,7 @@ export function createSearchPanel(deps: SearchDeps): SearchPanel {
   root.append(field, replaceRow, status, results);
 
   let answer: SearchAnswer | null = null;
+  let answerKey: string | null = null;
   let sequence = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let replacing = false;
@@ -207,8 +223,14 @@ export function createSearchPanel(deps: SearchDeps): SearchPanel {
     includeHidden: hiddenButton.getAttribute("aria-pressed") === "true",
   });
 
+  // The folder is part of the answer too: opening another folder must not let
+  // an old result count stand behind a Replace All in the new one.
+  const keyFor = (current: SearchState, root: string | null): string =>
+    `${root ?? ""}\u0000${searchStateKey(current)}`;
+
   function clearResults(): void {
     answer = null;
+    answerKey = null;
     results.replaceChildren();
     replaceAll.disabled = true;
   }
@@ -268,6 +290,7 @@ export function createSearchPanel(deps: SearchDeps): SearchPanel {
       const found = await deps.search(searchOptions(rootPath, current));
       if (token !== sequence) return;
       answer = found;
+      answerKey = keyFor(current, rootPath);
       status.textContent = searchSummary(found);
       renderGroups(found);
       replaceAll.disabled = found.matches.length === 0;
@@ -317,9 +340,11 @@ export function createSearchPanel(deps: SearchDeps): SearchPanel {
       deps.onNote("type what to replace first");
       return;
     }
-    if (answer === null || answer.query !== current.query) await run();
+    if (answer === null || answerKey !== keyFor(current, rootPath)) await run();
     const found = answer;
-    if (found === null || found.matches.length === 0) {
+    // A failed search has already said why; do not add "nothing to replace".
+    if (found === null) return;
+    if (found.matches.length === 0) {
       deps.onNote(`nothing to replace: no match for “${current.query}”`);
       return;
     }

@@ -2,7 +2,7 @@ import type { EditorApi } from "../api";
 import type { TabModel } from "../tabs";
 import type { DocumentsDeps } from "../documents";
 import { baseName } from "../files";
-import { normalizeEol } from "./text";
+import { detectEol, detectIndentation, normalizeEol } from "./text";
 
 export interface ExternalPorts {
   api: Pick<EditorApi, "read">;
@@ -66,7 +66,20 @@ export function createExternalOps(ports: ExternalPorts, tabs: TabModel) {
       try {
         const read = await deps.api.read(tab.path);
         const text = normalizeEol(read.content);
-        const state = deps.createState(text, tab.language, deps.settings(), {
+        tabs.setEol(tab.id, detectEol(read.content));
+        const settings = deps.settings();
+        let tabSize = settings.tabSize;
+        let insertSpaces = settings.insertSpaces;
+        if (tab.indentationPinned) {
+          tabSize = tab.tabSize;
+          insertSpaces = tab.insertSpaces;
+        } else {
+          const guess = detectIndentation(text);
+          tabSize = guess?.tabSize ?? settings.tabSize;
+          insertSpaces = guess?.insertSpaces ?? settings.insertSpaces;
+          tabs.setIndentation(tab.id, tabSize, insertSpaces, guess !== null, false);
+        }
+        const state = deps.createState(text, tab.language, { ...settings, tabSize, insertSpaces }, {
           topLine: tab.view.topLine,
           cursorLine: tab.view.cursorLine,
           cursorColumn: tab.view.cursorColumn,

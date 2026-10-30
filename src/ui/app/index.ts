@@ -2,7 +2,7 @@ import { createApi } from "../../api";
 import type { SurfaceLink } from "../../bridge";
 import { createDocuments } from "../../documents";
 import { mountEditor, type EditorUpdate, type SurfaceEditor } from "../../editor";
-import { dirName } from "../../files";
+import { baseName, dirName, shortenPath } from "../../files";
 import { detectPlatform, editorKeymap, installAppKeymap, type KeymapHost, type Platform } from "../../keymap";
 import { createNavigator } from "../../navigation";
 import {
@@ -27,7 +27,7 @@ import { installLifecycle, restoreSession, wireLink } from "./lifecycle";
 import { showEditorMenu, showTabMenu, type MenuHost } from "./menus";
 import { createOpener } from "./opening";
 import { createOutline } from "../outline";
-import { isPaletteOpen, createCommandPalette } from "../palette";
+import { createCommandPalette, createPalette, isPaletteOpen } from "../palette";
 import { createPeek } from "../peek";
 import { createPreview } from "../preview";
 import { createQuickOpen } from "../quickopen";
@@ -84,6 +84,10 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
     setEol(eol) {
       const active = tabs.active();
       if (active) state.documents?.setEol(active.id, eol);
+    },
+    setIndentation(tabSize, insertSpaces) {
+      const active = tabs.active();
+      if (active) state.documents?.setIndentation(active.id, tabSize, insertSpaces);
     },
     openSettings() {
       settingsSheet.open(state.settings);
@@ -158,7 +162,7 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
     symbols: (path, text) => api.symbols(path, text),
     active() {
       const tab = tabs.active();
-      if (tab === null) return null;
+      if (tab === null || tab.path.length === 0) return null;
       return { path: tab.path, text: tab.state.doc.toString() };
     },
     reveal(line) {
@@ -220,7 +224,7 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
     api,
     active() {
       const tab = tabs.active();
-      return tab === null ? null : { path: tab.path, text: tab.state.doc.toString() };
+      return tab === null || tab.path.length === 0 ? null : { path: tab.path, text: tab.state.doc.toString() };
     },
     root: () => state.workspace,
     cursor: () => ({ line: state.cursor.line, column: state.cursor.column }),
@@ -359,6 +363,32 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
     showError,
   });
 
+  const recentPalette = createPalette({
+    label: "Open Recent",
+    placeholder: "Type the name of a recent folder or file",
+    emptyText: "There is no recent folder or file yet.",
+    items: () => [
+      ...state.recentFolders.map((folder) => ({
+        id: `folder:${folder}`,
+        label: baseName(folder),
+        detail: "Folder",
+      })),
+      ...state.recentFiles.map((file) => ({
+        id: `file:${file}`,
+        label: baseName(file),
+        detail: shortenPath(dirName(file), 56),
+      })),
+    ],
+    onChoose: (item) => {
+      if (item.id.startsWith("folder:")) {
+        opener.openFolder(item.id.slice("folder:".length));
+        return;
+      }
+      void opener.openRecentFile(item.id.slice("file:".length));
+    },
+    onError: showError,
+  });
+
   function editorPositionAt(clientX: number, clientY: number): { line: number; column: number } | null {
     const at = editor.view().posAtCoords({ x: clientX, y: clientY });
     if (at === null) return null;
@@ -400,6 +430,7 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
     showError,
     openFile: opener.openFile,
     openFolder: opener.chooseFolder,
+    openRecent: () => recentPalette.open(),
     copyText: copy,
     revealPath: reveal,
   });
@@ -435,7 +466,7 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
     reconfigureLanguage: (language) => editor.setLanguage(language),
     preferredDirectory: () => {
       const active = tabs.active();
-      if (active) return dirName(active.path);
+      if (active !== null && active.path.length > 0) return dirName(active.path);
       return state.workspace;
     },
     onChange: () => renderer.all(),
@@ -452,6 +483,14 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
     render: () => renderer.all(),
     showError,
   });
+
+  // Coming back to the window is another moment to ask the disk: a file may
+  // have been changed by a tool while the human was away in another program.
+  const onWindowFocus = (): void => {
+    const active = tabs.active();
+    if (active !== null && active.path.length > 0) void state.documents?.reconcile(active.id);
+  };
+  window.addEventListener("focus", onWindowFocus);
 
   wireLink(options.link, showError);
 
@@ -477,6 +516,7 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
     render: () => renderer.all(),
     destroy() {
       removeKeymap();
+      window.removeEventListener("focus", onWindowFocus);
       cleanupLifecycle();
       settingsSheet.element.remove();
       schedulePersist.cancel();
@@ -487,6 +527,7 @@ export function createEditorApp(options: EditorAppOptions): EditorApp {
       search.destroy();
       quickOpen.destroy();
       commandPalette.destroy();
+      recentPalette.destroy();
       outline.destroy();
       explorer.destroy();
       sidebar.destroy();

@@ -32,9 +32,15 @@ export const {
 } = await import("../src/languages");
 export const { createDocumentState } = await import("../src/state");
 export const { createTabModel } = await import("../src/tabs");
-export const { createDocuments, detectEol, normalizeEol, toDiskText } = await import(
-  "../src/documents"
-);
+export const {
+  createDocuments,
+  detectEol,
+  detectIndentation,
+  nextUntitledName,
+  normalizeEol,
+  resolveIndentation,
+  toDiskText,
+} = await import("../src/documents");
 export const { APP_KEYBINDINGS, EDITOR_KEYBINDINGS, installAppKeymap, keyLabel, matchesKey, parseKey } = await import(
   "../src/keymap"
 );
@@ -107,6 +113,7 @@ export const {
   replaceConfirmMessage,
   replacementSummary,
   searchOptions,
+  searchStateKey,
   searchSummary,
 } = await import("../src/ui/search");
 export const { createApi } = await import("../src/api");
@@ -221,6 +228,7 @@ export interface Harness {
   stateOptions: Array<{ largeFile?: boolean } | undefined>;
   pick(value: string | null): void;
   answerDialog(...choices: UnsavedChoice[]): void;
+  answerConfirm(...choices: boolean[]): void;
   answerConflict(...choices: ConflictChoice[]): void;
   externalWrite(path: string, content: string): void;
   failRead(message: string): void;
@@ -237,6 +245,7 @@ export function harness(): Harness {
   const conflicts: string[] = [];
   const stateOptions: Array<{ largeFile?: boolean } | undefined> = [];
   const answers: UnsavedChoice[] = [];
+  const confirmAnswers: boolean[] = [];
   const conflictAnswers: ConflictChoice[] = [];
   let picked: string | null = null;
   let readFailure: string | null = null;
@@ -296,7 +305,7 @@ export function harness(): Harness {
       conflicts.push(`${kind}:${name}`);
       return conflictAnswers.shift() ?? "cancel";
     },
-    confirm: async () => true,
+    confirm: async () => confirmAnswers.shift() ?? true,
     reconfigureLanguage: (language) => log.push(`language:${language}`),
     preferredDirectory: () => "/tmp",
     onChange: () => {
@@ -321,6 +330,9 @@ export function harness(): Harness {
     },
     answerDialog: (...choices) => {
       answers.push(...choices);
+    },
+    answerConfirm: (...choices) => {
+      confirmAnswers.push(...choices);
     },
     answerConflict: (...choices) => {
       conflictAnswers.push(...choices);

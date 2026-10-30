@@ -21,6 +21,10 @@ export interface Tab {
   readonly language: LanguageId;
   readonly languageOverridden: boolean;
   readonly eol: Eol;
+  readonly tabSize: number;
+  readonly insertSpaces: boolean;
+  readonly indentationDetected: boolean;
+  readonly indentationPinned: boolean;
   readonly modifiedMs: number | null;
   readonly bytes: number;
   readonly view: TabView;
@@ -29,10 +33,15 @@ export interface Tab {
 export interface OpenTabInput {
   path: string;
   state: EditorState;
+  name?: string;
   savedText?: string;
   language?: LanguageId;
   languageOverridden?: boolean;
   eol?: Eol;
+  tabSize?: number;
+  insertSpaces?: boolean;
+  indentationDetected?: boolean;
+  indentationPinned?: boolean;
   modifiedMs?: number | null;
   bytes?: number;
   view?: Partial<TabView>;
@@ -41,10 +50,15 @@ export interface OpenTabInput {
 
 export interface ClosedTab {
   path: string;
+  name: string;
   savedText: string;
   language: LanguageId;
   languageOverridden: boolean;
   eol: Eol;
+  tabSize: number;
+  insertSpaces: boolean;
+  indentationDetected: boolean;
+  indentationPinned: boolean;
   modifiedMs: number | null;
   bytes: number;
 }
@@ -69,6 +83,13 @@ export interface TabModel {
   markSaved(id: string, info: { bytes: number; modifiedMs: number | null }): void;
   setLanguage(id: string, language: LanguageId, overridden: boolean): void;
   setEol(id: string, eol: Eol): void;
+  setIndentation(
+    id: string,
+    tabSize: number,
+    insertSpaces: boolean,
+    detected: boolean,
+    pinned: boolean,
+  ): void;
   renamePath(id: string, path: string): void;
   renamePrefix(from: string, to: string): readonly Tab[];
   tabsUnder(path: string): readonly Tab[];
@@ -108,10 +129,15 @@ export function createTabModel(options: TabModelOptions = {}): TabModel {
   const pushClosed = (tab: Tab): void => {
     closed.push({
       path: tab.path,
+      name: tab.name,
       savedText: tab.saved.toString(),
       language: tab.language,
       languageOverridden: tab.languageOverridden,
       eol: tab.eol,
+      tabSize: tab.tabSize,
+      insertSpaces: tab.insertSpaces,
+      indentationDetected: tab.indentationDetected,
+      indentationPinned: tab.indentationPinned,
       modifiedMs: tab.modifiedMs,
       bytes: tab.bytes,
     });
@@ -124,6 +150,8 @@ export function createTabModel(options: TabModelOptions = {}): TabModel {
     activeId: () => activeId,
 
     findPath(path) {
+      // An untitled buffer has no path, and two of them are never the same file.
+      if (path.length === 0) return null;
       return tabs.find((tab) => samePath(tab.path, path)) ?? null;
     },
 
@@ -137,12 +165,16 @@ export function createTabModel(options: TabModelOptions = {}): TabModel {
       const tab: Tab = Object.freeze({
         id: nextId(),
         path: input.path,
-        name: baseName(input.path),
+        name: input.name ?? baseName(input.path),
         state: input.state,
         saved: input.state.toText(savedText),
         language: input.language ?? languageFor(input.path),
         languageOverridden: input.languageOverridden === true,
         eol: input.eol ?? "lf",
+        tabSize: Math.min(16, Math.max(1, Math.round(clampNumber(input.tabSize, 2)))),
+        insertSpaces: input.insertSpaces !== false,
+        indentationDetected: input.indentationDetected === true,
+        indentationPinned: input.indentationPinned === true,
         modifiedMs: input.modifiedMs ?? null,
         bytes: clampNumber(input.bytes, savedText.length),
         view: {
@@ -265,6 +297,18 @@ export function createTabModel(options: TabModelOptions = {}): TabModel {
 
     setEol(id, eol) {
       replace(id, (tab) => Object.freeze({ ...tab, eol }));
+    },
+
+    setIndentation(id, tabSize, insertSpaces, detected, pinned) {
+      replace(id, (tab) =>
+        Object.freeze({
+          ...tab,
+          tabSize: Math.min(16, Math.max(1, Math.round(tabSize))),
+          insertSpaces,
+          indentationDetected: detected,
+          indentationPinned: pinned,
+        }),
+      );
     },
 
     renamePath(id, path) {

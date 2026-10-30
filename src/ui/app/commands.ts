@@ -1,4 +1,6 @@
 import {
+  addCursorAbove,
+  addCursorBelow,
   copyLineDown,
   copyLineUp,
   deleteLine,
@@ -6,14 +8,21 @@ import {
   indentMore,
   moveLineDown,
   moveLineUp,
+  toggleBlockComment,
   toggleComment,
 } from "@codemirror/commands";
-import { gotoLine, openSearchPanel, selectNextOccurrence } from "@codemirror/search";
+import {
+  gotoLine,
+  openSearchPanel,
+  selectNextOccurrence,
+  selectSelectionMatches,
+} from "@codemirror/search";
 import type { EditorView } from "@codemirror/view";
 
 import type { EditorApi } from "../../api";
 import type { Documents } from "../../documents";
 import type { SurfaceEditor } from "../../editor";
+import { relativePath } from "../../files";
 import { FormatError, formatDocument, nearestPosition } from "../../format";
 import {
   APP_KEYBINDINGS,
@@ -56,6 +65,7 @@ export interface CommandHost {
   showError(message: string): void;
   openFile(): Promise<void>;
   openFolder(): Promise<void>;
+  openRecent(): void;
   copyText(text: string): Promise<void>;
   revealPath(path: string): Promise<void>;
 }
@@ -83,6 +93,10 @@ export function registerCommands(host: CommandHost): void {
     host.updateSettings({ ...host.settings(), wordWrap }, `word wrap ${wordWrap ? "on" : "off"}`);
   };
 
+  register("file.new", "New File", "Start an untitled buffer; Save As writes it to disk", () => {
+    documents()?.newUntitled();
+    editor.focus();
+  });
   register("file.save", "Save", "Write the active file to disk", async () => {
     if (tabs.active() === null) return host.showNote("no file is open");
     await documents()?.saveActive();
@@ -95,12 +109,25 @@ export function registerCommands(host: CommandHost): void {
     const saved = (await documents()?.saveAll()) ?? 0;
     if (saved > 0) host.showNote(`saved ${saved} ${saved === 1 ? "file" : "files"}`);
   });
+  register("file.revert", "Revert File", "Discard unsaved edits and read the file from disk again", async () => {
+    const active = tabs.active();
+    if (active === null) return host.showNote("no file is open");
+    await documents()?.revert(active.id);
+  });
   register("file.open", "Open File…", "Choose a file through the OS dialog", host.openFile);
+  register("file.openRecent", "Open Recent…", "Reopen a folder or file from this session's history", () =>
+    host.openRecent(),
+  );
   register("workspace.openFolder", "Open Folder…", "Choose a folder to work in", host.openFolder);
   register("file.close", "Close Tab", "Close the active tab", async () => {
     if (tabs.active() === null) return host.showNote("no tab is open");
     const closed = await documents()?.closeActive();
     if (closed) editor.focus();
+  });
+  register("file.closeOthers", "Close Other Tabs", "Close every tab except the active one", async () => {
+    const active = tabs.active();
+    if (active === null) return host.showNote("no tab is open");
+    if (await documents()?.closeOthers(active.id)) editor.focus();
   });
   register("file.closeAll", "Close All Tabs", "Close every open tab", async () => {
     const closed = await documents()?.closeAll();
@@ -112,17 +139,34 @@ export function registerCommands(host: CommandHost): void {
   });
   register("file.copyPath", "Copy Path", "Copy the active file's path", () => {
     const active = tabs.active();
+    if (active !== null && active.path.length === 0) {
+      return host.showNote(`${active.name} has not been saved yet, so it has no path`);
+    }
     if (active) return host.copyText(active.path);
     return undefined;
   });
+  register("file.copyRelativePath", "Copy Relative Path", "Copy the active file's path inside the open folder", () => {
+    const active = tabs.active();
+    if (active === null) return host.showNote("no file is open");
+    if (active.path.length === 0) return host.showNote(`${active.name} has not been saved yet, so it has no path`);
+    const workspace = host.workspace();
+    if (workspace === null) return host.copyText(active.path);
+    return host.copyText(relativePath(workspace, active.path));
+  });
   register("file.reveal", "Reveal in File Manager", "Show the active file in Finder or Explorer", () => {
     const active = tabs.active();
+    if (active !== null && active.path.length === 0) {
+      return host.showNote(`${active.name} has not been saved yet, so there is nothing to reveal`);
+    }
     if (active) return host.revealPath(active.path);
     return undefined;
   });
   register("file.revealInExplorer", "Reveal in Explorer", "Show the active file in the folder tree", async () => {
     const active = tabs.active();
     if (active === null) return host.showNote("no file is open");
+    if (active.path.length === 0) {
+      return host.showNote(`${active.name} has not been saved yet, so it is not in the folder tree`);
+    }
     host.sidebar.show("explorer");
     await host.explorer.revealActive();
   });
@@ -192,6 +236,12 @@ export function registerCommands(host: CommandHost): void {
       host.showNote(`${languageLabel(active.language)} has no line comment syntax in this editor`);
     }
   });
+  register("editor.toggleBlockComment", "Toggle Block Comment", "Comment or uncomment the selection as a block", () => {
+    const active = tabs.active();
+    if (!toggleBlockComment(editor.view()) && active) {
+      host.showNote(`${languageLabel(active.language)} has no block comment syntax in this editor`);
+    }
+  });
   register("editor.indentMore", "Indent", "Indent the selected lines", command(indentMore));
   register("editor.indentLess", "Outdent", "Outdent the selected lines", command(indentLess));
   register("editor.moveLineUp", "Move Line Up", "Move the selected lines up", command(moveLineUp));
@@ -200,6 +250,14 @@ export function registerCommands(host: CommandHost): void {
   register("editor.copyLineDown", "Copy Line Down", "Duplicate the selected lines below", command(copyLineDown));
   register("editor.deleteLine", "Delete Line", "Delete the selected lines", command(deleteLine));
   register("editor.nextOccurrence", "Add Next Occurrence", "Add a cursor at the next match", command(selectNextOccurrence));
+  register(
+    "editor.selectAllOccurrences",
+    "Select All Occurrences",
+    "Put a cursor on every occurrence of the selection",
+    command(selectSelectionMatches),
+  );
+  register("editor.addCursorAbove", "Add Cursor Above", "Add a cursor on the line above", command(addCursorAbove));
+  register("editor.addCursorBelow", "Add Cursor Below", "Add a cursor on the line below", command(addCursorBelow));
   register("editor.definition", "Go to Definition", "Jump to where the symbol under the cursor is declared", () =>
     host.navigation.goToDefinition(),
   );

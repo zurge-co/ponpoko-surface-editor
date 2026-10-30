@@ -2,12 +2,12 @@ import type { EditorState } from "@codemirror/state";
 
 import type { EditorApi } from "./api";
 import type { FilePickRequest } from "./bridge";
-import { LARGE_FILE_BYTES, baseName, formatBytes, isLargeFile, pathKey } from "./files";
+import { LARGE_FILE_BYTES, baseName, formatBytes, isLargeFile, joinPath, pathKey } from "./files";
 import { languageFor, languageLabel, type LanguageId } from "./languages";
 import type { EditorSettings } from "./session";
-import { detectEol, messageOf, normalizeEol, toDiskText } from "./documents/text";
+import { detectEol, detectIndentation, messageOf, normalizeEol, toDiskText } from "./documents/text";
 
-export { detectEol, normalizeEol, toDiskText } from "./documents/text";
+export { detectEol, detectIndentation, normalizeEol, toDiskText } from "./documents/text";
 import { createDiskWatcher } from "./documents/watch";
 import { createExternalOps } from "./documents/external";
 import type { Eol, Tab, TabModel, TabView } from "./tabs";
@@ -54,11 +54,13 @@ export interface DocumentsDeps {
 export interface Documents {
   openPath(path: string, options?: OpenPathOptions): Promise<Tab | null>;
   openViaDialog(): Promise<void>;
+  newUntitled(): Tab;
   save(tabId: string): Promise<boolean>;
   saveActive(): Promise<boolean>;
   saveAs(tabId: string): Promise<boolean>;
   saveAsActive(): Promise<boolean>;
   saveAll(): Promise<number>;
+  revert(tabId: string): Promise<boolean>;
   close(tabId: string): Promise<boolean>;
   closeActive(): Promise<boolean>;
   closeOthers(tabId: string): Promise<boolean>;
@@ -70,6 +72,7 @@ export interface Documents {
   activateIndex(index: number): void;
   setLanguage(tabId: string, language: LanguageId): void;
   setEol(tabId: string, eol: Eol): void;
+  setIndentation(tabId: string, tabSize: number, insertSpaces: boolean): void;
   restore(entries: readonly RestorableTab[], activePath: string | null): Promise<void>;
   rememberActive(): void;
   applyRenamed(from: string, to: string): number;
@@ -92,6 +95,40 @@ export interface RestorableTab {
   topLine: number;
   cursorLine: number;
   cursorColumn: number;
+}
+
+/**
+ * A name for a buffer that has never been written: Untitled-1, Untitled-2…
+ * The name only has to be unique among the tabs that are open, because the
+ * buffer has no path until Save As gives it one.
+ */
+export function nextUntitledName(tabs: readonly Tab[]): string {
+  const used = new Set(tabs.map((tab) => tab.name));
+  for (let index = 1; index < 10_000; index += 1) {
+    const name = `Untitled-${index}`;
+    if (!used.has(name)) return name;
+  }
+  return `Untitled-${Date.now()}`;
+}
+
+export interface ResolvedIndentation {
+  tabSize: number;
+  insertSpaces: boolean;
+  detected: boolean;
+  settings: EditorSettings;
+}
+
+/** A file's own indentation wins; the editor's settings are the fallback. */
+export function resolveIndentation(text: string, settings: EditorSettings): ResolvedIndentation {
+  const guess = detectIndentation(text);
+  const tabSize = guess?.tabSize ?? settings.tabSize;
+  const insertSpaces = guess?.insertSpaces ?? settings.insertSpaces;
+  return {
+    tabSize,
+    insertSpaces,
+    detected: guess !== null,
+    settings: { ...settings, tabSize, insertSpaces },
+  };
 }
 
 export function createDocuments(deps: DocumentsDeps): Documents {
@@ -131,7 +168,8 @@ export function createDocuments(deps: DocumentsDeps): Documents {
       const language = options.language ?? languageFor(path);
       const bytes = read.bytes;
       const largeFile = isLargeFile(bytes);
-      const state = deps.createState(text, language, deps.settings(), options.view, { largeFile });
+      const indent = resolveIndentation(text, deps.settings());
+      const state = deps.createState(text, language, indent.settings, options.view, { largeFile });
       const { tab } = tabs.open({
         path,
         state,
@@ -139,6 +177,10 @@ export function createDocuments(deps: DocumentsDeps): Documents {
         language,
         languageOverridden: options.language !== undefined && options.language !== null,
         eol,
+        tabSize: indent.tabSize,
+        insertSpaces: indent.insertSpaces,
+        indentationDetected: indent.detected,
+        indentationPinned: false,
         modifiedMs: info.exists ? info.modified_ms ?? null : read.modified_ms ?? null,
         bytes,
         view: options.view,
@@ -180,11 +222,46 @@ export function createDocuments(deps: DocumentsDeps): Documents {
     }
   }
 
+  function newUntitled(): Tab {
+    const name = nextUntitledName(tabs.list());
+    const settings = deps.settings();
+    const state = deps.createState("", "text", settings);
+    const { tab } = tabs.open({
+      path: "",
+      name,
+      state,
+      savedText: "",
+      language: "text",
+      eol: "lf",
+      tabSize: settings.tabSize,
+      insertSpaces: settings.insertSpaces,
+      indentationDetected: false,
+      indentationPinned: false,
+      modifiedMs: null,
+      bytes: 0,
+      activate: true,
+    });
+    deps.onChange();
+    deps.onNote(`${name}: a new file; Save or Save As writes it to disk`);
+    return tab;
+  }
+
   async function writeTab(tab: Tab, target: string): Promise<boolean> {
     if (writing.has(tab.id)) return false;
     writing.add(tab.id);
     try {
-      if (pathKey(target) === pathKey(tab.path)) {
+      const samePath = pathKey(target) === pathKey(tab.path);
+      // Save As (or a first save from an untitled buffer) must not leave two
+      // tabs claiming one file. A clean tab on the target is stale after the
+      // write, so it goes away; a dirty one is work this save would strand.
+      const other = samePath ? null : tabs.findPath(target);
+      if (other !== null && other.id !== tab.id && tabs.dirty(other)) {
+        deps.onError(
+          `${baseName(target)} is already open in another tab with unsaved changes. Save or close that tab first.`,
+        );
+        return false;
+      }
+      if (samePath) {
         const disk = await watcher.diskMovedOn(tab);
         if (disk.changed && disk.exists) {
           const choice = await askConflict("save", tab.name);
@@ -208,7 +285,10 @@ export function createDocuments(deps: DocumentsDeps): Documents {
       const diskText = toDiskText(tab.state.doc.toString(), tab.eol);
       const answer = await deps.api.write(target, diskText);
       const info = await deps.api.stat(target).catch(() => null);
-      if (target !== tab.path) tabs.renamePath(tab.id, target);
+      if (target !== tab.path) {
+        tabs.renamePath(tab.id, target);
+        if (other !== null && other.id !== tab.id) tabs.drop(other.id);
+      }
       tabs.markSaved(tab.id, {
         bytes: answer.bytes,
         modifiedMs: info !== null && info.exists ? info.modified_ms ?? null : null,
@@ -238,10 +318,17 @@ export function createDocuments(deps: DocumentsDeps): Documents {
     if (busy) return false;
     busy = true;
     try {
+      const directory = deps.preferredDirectory();
+      const seed =
+        tab.path.length > 0
+          ? tab.path
+          : directory === null
+            ? undefined
+            : joinPath(directory, tab.name);
       const target = await deps.pickFile({
         mode: "save",
         title: `Save ${tab.name} as…`,
-        defaultPath: tab.path.length > 0 ? tab.path : deps.preferredDirectory() ?? undefined,
+        ...(seed === undefined ? {} : { defaultPath: seed }),
       });
       if (target === null) {
         deps.onNote("nothing was saved");
@@ -265,6 +352,30 @@ export function createDocuments(deps: DocumentsDeps): Documents {
     }
     if (saved === 0) deps.onNote("there was nothing to save");
     return saved;
+  }
+
+  async function revert(tabId: string): Promise<boolean> {
+    const tab = tabs.list().find((candidate) => candidate.id === tabId);
+    if (!tab) return false;
+    if (tab.path.length === 0) {
+      deps.onNote(`${tab.name} has not been saved yet, so there is nothing on disk to go back to`);
+      return false;
+    }
+    if (tabs.dirty(tab)) {
+      const confirmed = await deps.confirm({
+        title: `Revert ${tab.name}?`,
+        message: `The unsaved edits in ${tab.name} will be discarded and the tab will read the file from disk again. This cannot be undone from this editor.`,
+        confirmLabel: "Revert",
+        danger: true,
+      });
+      if (!confirmed) {
+        deps.onNote("nothing was reverted");
+        return false;
+      }
+    }
+    const reloaded = await watcher.reloadFromDisk(tab);
+    if (reloaded) deps.onNote(`${tab.name} was reloaded from disk`);
+    return reloaded;
   }
 
   async function close(tabId: string): Promise<boolean> {
@@ -309,7 +420,12 @@ export function createDocuments(deps: DocumentsDeps): Documents {
       deps.onNote("there is no closed tab to bring back");
       return;
     }
-    const state = deps.createState(closed.savedText, closed.language, deps.settings(), {
+    const current = deps.settings();
+    const ownIndentation = closed.indentationDetected || closed.indentationPinned;
+    const tabSize = ownIndentation ? closed.tabSize : current.tabSize;
+    const insertSpaces = ownIndentation ? closed.insertSpaces : current.insertSpaces;
+    const settings = { ...current, tabSize, insertSpaces };
+    const state = deps.createState(closed.savedText, closed.language, settings, {
       scrollTop: 0,
       topLine: 1,
       cursorLine: 1,
@@ -317,11 +433,16 @@ export function createDocuments(deps: DocumentsDeps): Documents {
     });
     tabs.open({
       path: closed.path,
+      name: closed.name,
       state,
       savedText: closed.savedText,
       language: closed.language,
       languageOverridden: closed.languageOverridden,
       eol: closed.eol,
+      tabSize,
+      insertSpaces,
+      indentationDetected: closed.indentationDetected,
+      indentationPinned: closed.indentationPinned,
       modifiedMs: closed.modifiedMs,
       bytes: closed.bytes,
       view: { scrollTop: 0, topLine: 1, cursorLine: 1, cursorColumn: 1 },
@@ -380,6 +501,16 @@ export function createDocuments(deps: DocumentsDeps): Documents {
     deps.onChange();
   }
 
+  function setIndentation(tabId: string, tabSize: number, insertSpaces: boolean): void {
+    const tab = tabs.list().find((candidate) => candidate.id === tabId);
+    if (!tab) return;
+    tabs.setIndentation(tabId, tabSize, insertSpaces, false, true);
+    deps.onNote(
+      `${tab.name}: indenting with ${insertSpaces ? `${tabSize} spaces` : "tabs"} for this file`,
+    );
+    deps.onChange();
+  }
+
   const external = createExternalOps(deps, tabs);
   const applyRenamed = external.applyRenamed;
   const applyDeleted = external.applyDeleted;
@@ -418,6 +549,7 @@ export function createDocuments(deps: DocumentsDeps): Documents {
   return {
     openPath,
     openViaDialog,
+    newUntitled,
     save,
     saveActive: () => {
       const active = tabs.active();
@@ -429,6 +561,7 @@ export function createDocuments(deps: DocumentsDeps): Documents {
       return active ? saveAs(active.id) : Promise.resolve(false);
     },
     saveAll,
+    revert,
     close,
     closeActive: () => {
       const active = tabs.active();
@@ -443,6 +576,7 @@ export function createDocuments(deps: DocumentsDeps): Documents {
     activateIndex,
     setLanguage,
     setEol,
+    setIndentation,
     restore,
     rememberActive,
     applyRenamed,

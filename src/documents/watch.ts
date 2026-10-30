@@ -1,7 +1,7 @@
 import type { EditorApi } from "../api";
 import type { Tab, TabModel } from "../tabs";
 import { baseName, isLargeFile } from "../files";
-import { messageOf, normalizeEol } from "./text";
+import { detectEol, detectIndentation, messageOf, normalizeEol } from "./text";
 import type { ConflictChoice, ConflictKind, DocumentsDeps, ReconcileOutcome } from "../documents";
 
 export interface WatchPorts {
@@ -42,10 +42,28 @@ export function createDiskWatcher(
     try {
       const read = await ports.api.read(tab.path);
       const text = normalizeEol(read.content);
+      // The file may have been rewritten with the other line ending; follow
+      // the bytes on disk rather than the line ending the tab remembered.
+      const eol = detectEol(read.content);
+      ports.tabs.setEol(tab.id, eol);
+      const settings = ports.settings();
+      let tabSize = settings.tabSize;
+      let insertSpaces = settings.insertSpaces;
+      if (tab.indentationPinned) {
+        // The human chose this file's indentation; re-reading the file must
+        // not take that choice away.
+        tabSize = tab.tabSize;
+        insertSpaces = tab.insertSpaces;
+      } else {
+        const guess = detectIndentation(text);
+        tabSize = guess?.tabSize ?? settings.tabSize;
+        insertSpaces = guess?.insertSpaces ?? settings.insertSpaces;
+        ports.tabs.setIndentation(tab.id, tabSize, insertSpaces, guess !== null, false);
+      }
       const state = ports.createState(
         text,
         tab.language,
-        ports.settings(),
+        { ...settings, tabSize, insertSpaces },
         {
           topLine: tab.view.topLine,
           cursorLine: tab.view.cursorLine,

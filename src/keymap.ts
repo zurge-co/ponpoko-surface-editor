@@ -9,6 +9,7 @@ export interface KeyBindingSpec {
 }
 
 export const APP_KEYBINDINGS: readonly KeyBindingSpec[] = [
+  { key: "Mod-n", command: "file.new", label: "New File" },
   { key: "Mod-s", command: "file.save", label: "Save" },
   { key: "Mod-Shift-s", command: "file.saveAs", label: "Save As…" },
   { key: "Mod-Alt-s", command: "file.saveAll", label: "Save All" },
@@ -43,6 +44,7 @@ export const EDITOR_KEYBINDINGS: readonly KeyBindingSpec[] = [
   { key: "Mod-h", command: "editor.replace", label: "Replace" },
   { key: "Mod-g", command: "editor.gotoLine", label: "Go to Line…" },
   { key: "Mod-Slash", command: "editor.toggleComment", label: "Toggle Line Comment" },
+  { key: "Shift-Alt-a", command: "editor.toggleBlockComment", label: "Toggle Block Comment" },
   { key: "Mod-BracketLeft", command: "editor.indentLess", label: "Outdent" },
   { key: "Mod-BracketRight", command: "editor.indentMore", label: "Indent" },
   { key: "Alt-ArrowUp", command: "editor.moveLineUp", label: "Move Line Up" },
@@ -51,6 +53,9 @@ export const EDITOR_KEYBINDINGS: readonly KeyBindingSpec[] = [
   { key: "Shift-Alt-ArrowDown", command: "editor.copyLineDown", label: "Copy Line Down" },
   { key: "Mod-Shift-k", command: "editor.deleteLine", label: "Delete Line" },
   { key: "Mod-d", command: "editor.nextOccurrence", label: "Add Next Occurrence" },
+  { key: "Mod-Shift-l", command: "editor.selectAllOccurrences", label: "Select All Occurrences" },
+  { key: "Mod-Alt-ArrowUp", command: "editor.addCursorAbove", label: "Add Cursor Above" },
+  { key: "Mod-Alt-ArrowDown", command: "editor.addCursorBelow", label: "Add Cursor Below" },
   { key: "F12", command: "editor.definition", label: "Go to Definition" },
   { key: "Shift-F12", command: "editor.references", label: "Find All References" },
   { key: "Shift-Alt-f", command: "editor.formatDocument", label: "Format Document" },

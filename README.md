@@ -41,6 +41,17 @@ instead of pretending.
 - **Tabs.** Several files at once, one `EditorState` per tab (undo history,
   selection, folds, the document), a dirty dot, close with Save / Don't Save /
   Cancel, close others / close all, reopen the last closed tab.
+- **Untitled files.** New File (Cmd/Ctrl+N) starts a buffer that has no path yet;
+  Save and Save As ask where it goes, and from then on it is an ordinary tab.
+  Untitled buffers are deliberately not written to the session: their text is
+  not persisted, so they are not restored as empty tabs on the next start.
+- **Revert.** Revert File discards the buffer's unsaved edits and reads the file
+  from disk again, asking first when there is something to lose. It is in the
+  command palette and both context menus; the tab follows the file's line
+  endings if they changed.
+- **One file, one tab.** Save As onto a path that another tab already has open
+  does not leave two tabs claiming the file: a clean tab there is replaced, and
+  a dirty one stops the save with a sentence rather than being stranded.
 - **Memory.** Each tab remembers the line it was scrolled to; switching tabs
   comes back to it. Closing a tab forgets it. Clean tabs and their positions are
   restored on the next start.
@@ -63,15 +74,29 @@ guessing. The language can be set by hand from the status line.
 
 ### Editing
 
-In-file find/replace, go to line, toggle comment, indent/outdent, move/copy/
-delete line, multi-cursor (select next occurrence, add cursor at click), word
-wrap, zoom (text size), bracket matching, folding, and the usual CodeMirror
-undo/redo.
+In-file find/replace, go to line, toggle line or block comment, indent/outdent,
+move/copy/delete line, multi-cursor, word wrap, zoom (text size), bracket
+matching, folding, and the usual CodeMirror undo/redo.
+
+- **Multi-cursor.** Select Next Occurrence (Cmd/Ctrl+D), Select All Occurrences
+  (Cmd/Ctrl+Shift+L), Add Cursor Above/Below (Cmd/Ctrl+Alt+↑/↓), and Alt-click
+  puts one more cursor where the pointer is. Alt+Shift-drag selects a rectangle.
+- **Indentation follows the file.** When a file is opened (or re-read from
+  disk) its own indentation is read from the text — tabs, or a space width — and
+  used for Tab and auto-indent, so editing a four-space or tab-indented project
+  does not fight it. The status line names the choice and says whether it was
+  read from the file or chosen for it; its menu sets spaces or tabs for the
+  current file, and that choice survives a reload. The tab size/spaces settings
+  are the fallback for files with too little indentation to tell, and for a new
+  untitled buffer.
 
 ### Quick open, command palette, outline
 
 - **Quick open** (Cmd/Ctrl+P) ranks the workspace's files with a fuzzy match and
   opens the chosen one.
+- **Open Recent** (in the command palette) lists the folders and files this
+  surface opened, so the welcome screen's history is still reachable once a tab
+  is open.
 - **Command palette** (Cmd/Ctrl+Shift+P) lists every command the surface
   registers, with the same fuzzy ranking.
 - **Outline** (in the sidebar) reads the active **buffer** (not the file on
@@ -153,7 +178,8 @@ The editor asks the disk, not its memory:
 - **Before every save** it compares the file's timestamp with the one the tab
   read. If another program wrote the file in between, it asks: **Overwrite**,
   **Reload from Disk**, or **Cancel** — and Cancel writes nothing.
-- **When a tab comes to the front** it checks again. A clean tab follows the disk
+- **When a tab comes to the front, or the window regains focus,** it checks
+  again. A clean tab follows the disk
   and says that it did; a tab with unsaved edits asks first, because reloading
   it would discard work. "Keep My Version" keeps the buffer and the next save
   still asks before overwriting.
@@ -286,16 +312,16 @@ a refusal is `{"error": …}` on stderr and a non-zero exit.
 ## Test it
 
 ```sh
-cd app && bun test                                   # app + this surface's suite
-cd surfaces/editor/backend && cargo test             # both binaries' suite
-cd surfaces/editor && bun run typecheck              # the surface's own project
+bun test test                        # the surface's suite
+cd backend && cargo test             # both binaries' suite
+bun run typecheck                    # the surface's own project
 ```
 
-The surface's suite (`app/test/editorSurface.test.ts`) proves the pure layers —
-language detection, the tab model, the save/close flows, conflict detection,
+The surface's suite (`test/editorSurface/part*.test.ts`) proves the pure layers
+— language detection, the tab model, the save/close flows, conflict detection,
 the large-file guard, the keymap, the session, search grouping, preview
-resolution, navigation — and the promises this README makes about what the build
-does and does not contain.
+resolution, navigation, untitled files and revert — and the promises this
+README makes about what the build does and does not contain.
 
 ## Version 1.0.0 — what it is not
 

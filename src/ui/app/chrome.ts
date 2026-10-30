@@ -109,7 +109,7 @@ export function createChrome(root: HTMLElement, platform: Platform): Chrome {
   welcomeButtons.append(openFolderWelcome, openFileWelcome);
   const recentBlock = el("div", "welcome-recent");
   const shortcuts = el("p", "welcome-shortcuts");
-  shortcuts.textContent = `Quick keys: ${keyLabel("Mod-p", platform)} go to file · ${keyLabel("Mod-Shift-p", platform)} commands · ${keyLabel("Mod-o", platform)} open · ${keyLabel("Mod-s", platform)} save · ${keyLabel("Mod-w", platform)} close tab · ${keyLabel("Mod-b", platform)} sidebar · ${keyLabel("Mod-f", platform)} find in file · F12 go to definition`;
+  shortcuts.textContent = `Quick keys: ${keyLabel("Mod-n", platform)} new · ${keyLabel("Mod-p", platform)} go to file · ${keyLabel("Mod-Shift-p", platform)} commands · ${keyLabel("Mod-o", platform)} open · ${keyLabel("Mod-s", platform)} save · ${keyLabel("Mod-w", platform)} close tab · ${keyLabel("Mod-b", platform)} sidebar · ${keyLabel("Mod-f", platform)} find in file · F12 go to definition`;
   welcomeInner.append(welcomeMark, welcomeTitle, welcomeLead, welcomeButtons, recentBlock, shortcuts);
   welcome.append(welcomeInner);
 
@@ -158,20 +158,24 @@ export function createChrome(root: HTMLElement, platform: Platform): Chrome {
 export function renderTitle(chrome: Chrome, model: TitleModel, platform: Platform): void {
   const { workspace, tab } = model;
   if (workspace === null) {
-    chrome.workspaceName.textContent = "No folder open";
-    chrome.workspacePath.textContent = tab ? dirName(tab.path) : "";
+    chrome.workspaceName.textContent =
+      tab !== null && tab.path.length === 0 ? tab.name : "No folder open";
+    chrome.workspacePath.textContent = tab !== null && tab.path.length > 0 ? dirName(tab.path) : "";
   } else {
     chrome.workspaceName.textContent = baseName(workspace);
     chrome.workspacePath.textContent = shortenPath(workspace, 72);
   }
-  chrome.workspacePath.title = workspace ?? (tab ? tab.path : "");
+  chrome.workspacePath.title =
+    workspace ?? (tab === null ? "" : tab.path.length > 0 ? tab.path : "This file has not been saved yet");
   const saveAll = chrome.buttons.saveAll;
   saveAll.disabled = model.dirtyCount === 0;
   saveAll.title =
     model.dirtyCount === 0
       ? "Every open file is saved"
       : `Save ${model.dirtyCount} changed ${model.dirtyCount === 1 ? "file" : "files"} (${keyLabel("Mod-Alt-s", platform)})`;
-  chrome.workspaceName.title = tab ? `${tab.name} — ${tab.path}` : (workspace ?? "No folder open");
+  chrome.workspaceName.title = tab
+    ? `${tab.name} — ${tab.path.length > 0 ? tab.path : "not saved yet"}`
+    : (workspace ?? "No folder open");
   const previewButton = chrome.buttons.preview;
   const previewable = canPreview(tab?.path ?? null);
   previewButton.hidden = !previewable;

@@ -103,9 +103,18 @@ export function mountEditor(
   let shownLanguage: LanguageId | null = null;
   let shownSettings = "";
   let shownLarge = false;
+  let shownIndent: { tabSize: number; insertSpaces: boolean; own: boolean } | null = null;
 
   const settingsKey = (value: EditorSettings): string =>
     `${value.tabSize}:${value.insertSpaces}:${value.wordWrap}:${value.fontSize}`;
+
+  // A file whose indentation was read from its text, or chosen for it by the
+  // human, keeps it; the global settings only decide the rest.
+  const ownsIndentation = (tab: Tab): boolean => tab.indentationDetected || tab.indentationPinned;
+  const indentationFor = (base: EditorSettings, tab: Tab): EditorSettings =>
+    ownsIndentation(tab)
+      ? { ...base, tabSize: tab.tabSize, insertSpaces: tab.insertSpaces }
+      : base;
 
   const extra = [
     lineNumbers(),
@@ -114,7 +123,12 @@ export function mountEditor(
     foldGutter({ openText: "▾", closedText: "▸" }),
     drawSelection(),
     dropCursor(),
-    rectangularSelection(),
+    // Alt-click adds a cursor without taking the platform modifier that
+    // already means Go to Definition; Alt-Shift-drag selects a rectangle.
+    EditorView.clickAddsSelectionRange.of(
+      (event: MouseEvent) => event.altKey && !event.shiftKey,
+    ),
+    rectangularSelection({ eventFilter: (event) => event.altKey && event.shiftKey }),
     crosshairCursor(),
     highlightActiveLine(),
     EditorView.updateListener.of((update: ViewUpdate) => {
@@ -176,19 +190,20 @@ export function mountEditor(
       settings = nextSettings;
       const stateChanged = view.state !== tab.state;
       if (stateChanged) view.setState(tab.state);
-      const nextKey = settingsKey(settings);
+      const effective = indentationFor(settings, tab);
+      const nextKey = settingsKey(effective);
       const tabChanged = shownId !== tab.id;
       const moved = tabChanged || stateChanged;
       const reconfigure = tabChanged || stateChanged || shownLanguage !== tab.language || shownSettings !== nextKey;
       const large = isLargeFile(tab.bytes);
       const effects: import("@codemirror/state").StateEffect<unknown>[] = [];
       if (reconfigure) {
-        const { tabSize, indent } = indentation(settings);
+        const { tabSize, indent } = indentation(effective);
         effects.push(
           languageCompartment.reconfigure(large ? [] : languageExtension(tab.language)),
           tabSizeCompartment.reconfigure(tabSize),
           indentCompartment.reconfigure(indent),
-          wrapCompartment.reconfigure(wrapExtension(settings)),
+          wrapCompartment.reconfigure(wrapExtension(effective)),
         );
       }
       if (moved) {
@@ -202,10 +217,19 @@ export function mountEditor(
       }
       if (effects.length > 0) view.dispatch({ effects });
       applyFontSize();
+      view.contentDOM.setAttribute(
+        "aria-label",
+        tab.path.length === 0 ? `${tab.name} (not saved yet)` : `${tab.name} editor`,
+      );
       shownId = tab.id;
       shownLanguage = tab.language;
       shownSettings = nextKey;
       shownLarge = large;
+      shownIndent = {
+        tabSize: tab.tabSize,
+        insertSpaces: tab.insertSpaces,
+        own: ownsIndentation(tab),
+      };
     },
 
     capture() {
@@ -222,11 +246,15 @@ export function mountEditor(
 
     configure(nextSettings) {
       settings = nextSettings;
-      shownSettings = settingsKey(settings);
-      const { tabSize, indent } = indentation(settings);
+      const effective =
+        shownIndent !== null && shownIndent.own
+          ? { ...settings, tabSize: shownIndent.tabSize, insertSpaces: shownIndent.insertSpaces }
+          : settings;
+      shownSettings = settingsKey(effective);
+      const { tabSize, indent } = indentation(effective);
       view.dispatch({
         effects: [
-          wrapCompartment.reconfigure(wrapExtension(settings)),
+          wrapCompartment.reconfigure(wrapExtension(effective)),
           tabSizeCompartment.reconfigure(tabSize),
           indentCompartment.reconfigure(indent),
         ],

@@ -7,6 +7,7 @@ import {
 } from "../languages";
 import type { EditorSettings } from "../session";
 import type { Eol, Tab } from "../tabs";
+import { showMenu } from "./menu";
 
 export interface StatusModel {
   tab: Tab | null;
@@ -20,6 +21,7 @@ export interface StatusModel {
 export interface StatusBarHandlers {
   setLanguage(language: LanguageId): void;
   setEol(eol: Eol): void;
+  setIndentation(tabSize: number, insertSpaces: boolean): void;
   openSettings(): void;
 }
 
@@ -51,8 +53,42 @@ export function createStatusBar(handlers: StatusBarHandlers): StatusBar {
 
   const indentation = element("button", "status-item status-button");
   indentation.type = "button";
-  indentation.title = "Indentation settings";
-  indentation.addEventListener("click", () => handlers.openSettings());
+  indentation.title = "Indentation for this file";
+  indentation.setAttribute("aria-haspopup", "menu");
+
+  let currentModel: StatusModel | null = null;
+  indentation.addEventListener("click", () => {
+    const tab = currentModel?.tab ?? null;
+    const own = tab !== null && (tab.indentationDetected || tab.indentationPinned);
+    const currentSize = own && tab !== null ? tab.tabSize : (currentModel?.settings.tabSize ?? 2);
+    const currentSpaces = own && tab !== null ? tab.insertSpaces : (currentModel?.settings.insertSpaces ?? true);
+    const mark = (size: number, spaces: boolean): string =>
+      size === currentSize && spaces === currentSpaces ? " ✓" : "";
+    const rect = indentation.getBoundingClientRect();
+    showMenu({
+      x: rect.left,
+      y: rect.top,
+      label: "Indentation for this file",
+      entries: [
+        ...[2, 4, 8].map((size) => ({
+          type: "item" as const,
+          label: `Indent Using Spaces: ${size}${mark(size, true)}`,
+          run: () => handlers.setIndentation(size, true),
+        })),
+        {
+          type: "item" as const,
+          label: `Indent Using Tabs${mark(currentSize, false)}`,
+          run: () => handlers.setIndentation(currentSize, false),
+        },
+        { type: "separator" as const },
+        {
+          type: "item" as const,
+          label: "Indentation Settings…",
+          run: () => handlers.openSettings(),
+        },
+      ],
+    });
+  });
 
   const eol = element("select", "status-item status-select status-eol");
   eol.setAttribute("aria-label", "Line endings");
@@ -85,6 +121,7 @@ export function createStatusBar(handlers: StatusBarHandlers): StatusBar {
   return {
     element: bar,
     render(model) {
+      currentModel = model;
       const { tab } = model;
       const hasTab = tab !== null;
       language.disabled = !hasTab;
@@ -108,12 +145,18 @@ export function createStatusBar(handlers: StatusBarHandlers): StatusBar {
       if (language.value !== languageValue) language.value = languageValue;
       language.title = `Language mode: ${languageLabel(languageValue)}${tab.languageOverridden ? " (chosen by you)" : ""}`;
 
-      indentation.textContent = model.settings.insertSpaces
-        ? `Spaces: ${model.settings.tabSize}`
-        : `Tab Size: ${model.settings.tabSize}`;
-      indentation.title = model.settings.insertSpaces
-        ? `Indenting with ${model.settings.tabSize} spaces`
-        : "Indenting with tab characters";
+      const own = tab.indentationDetected || tab.indentationPinned;
+      const tabSize = own ? tab.tabSize : model.settings.tabSize;
+      const insertSpaces = own ? tab.insertSpaces : model.settings.insertSpaces;
+      indentation.textContent = insertSpaces ? `Spaces: ${tabSize}` : `Tab Size: ${tabSize}`;
+      const source = tab.indentationDetected
+        ? " — read from this file"
+        : tab.indentationPinned
+          ? " — chosen for this file"
+          : " — from the editor settings";
+      indentation.title = `${
+        insertSpaces ? `Indenting with ${tabSize} spaces` : "Indenting with tab characters"
+      }${source}`;
 
       if (eol.value !== tab.eol) eol.value = tab.eol;
       eol.title =

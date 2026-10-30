@@ -71,7 +71,7 @@ export function createRenderer(host: RendererHost): Renderer {
 
   function syncOutline(force = false): void {
     const active = tabs.active();
-    const path = active === null ? null : active.path;
+    const path = active === null || active.path.length === 0 ? null : active.path;
     if (!force && path === state.outlinePath) return;
     state.outlinePath = path;
     if (path === null) {
@@ -96,7 +96,7 @@ export function createRenderer(host: RendererHost): Renderer {
       state.cursor = cursorOf(active.state);
       if (wasHidden) editor.measure();
     }
-    host.explorer.setActivePath(active ? active.path : null);
+    host.explorer.setActivePath(active !== null && active.path.length > 0 ? active.path : null);
     const previewTab: PreviewTab | null =
       active === null
         ? null

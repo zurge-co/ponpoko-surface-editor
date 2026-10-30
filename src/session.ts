@@ -254,15 +254,19 @@ export function persistedTabs(tabs: readonly Tab[], activeId: string | null): {
   activePath: string | null;
 } {
   return {
-    tabs: tabs.map((tab) => ({
-      path: tab.path,
-      language: tab.languageOverridden ? tab.language : null,
-      eol: tab.eol,
-      topLine: Math.max(1, Math.round(tab.view.topLine)),
-      cursorLine: Math.max(1, Math.round(tab.view.cursorLine)),
-      cursorColumn: Math.max(1, Math.round(tab.view.cursorColumn)),
-    })),
-    activePath: tabs.find((tab) => tab.id === activeId)?.path ?? null,
+    // An untitled buffer has no file to reopen and its text is not persisted,
+    // so it is left out instead of being restored as an empty tab.
+    tabs: tabs
+      .filter((tab) => tab.path.length > 0)
+      .map((tab) => ({
+        path: tab.path,
+        language: tab.languageOverridden ? tab.language : null,
+        eol: tab.eol,
+        topLine: Math.max(1, Math.round(tab.view.topLine)),
+        cursorLine: Math.max(1, Math.round(tab.view.cursorLine)),
+        cursorColumn: Math.max(1, Math.round(tab.view.cursorColumn)),
+      })),
+    activePath: tabs.find((tab) => tab.id === activeId && tab.path.length > 0)?.path ?? null,
   };
 }
 

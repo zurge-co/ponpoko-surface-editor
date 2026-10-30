@@ -31,6 +31,12 @@ function tabMenuEntries(tab: Tab, host: MenuHost): MenuEntry[] {
       keybinding: keyLabel("Mod-Shift-s", host.platform),
       run: () => void host.documents()?.saveAs(tab.id),
     },
+    {
+      type: "item",
+      label: "Revert File",
+      run: () => void host.documents()?.revert(tab.id),
+      disabled: !isDirty || tab.path.length === 0,
+    },
     { type: "separator" },
     {
       type: "item",
@@ -84,6 +90,12 @@ export function showEditorMenu(at: { x: number; y: number }, host: MenuHost): vo
       label: "Save As…",
       keybinding: keyLabel("Mod-Shift-s", host.platform),
       run: () => void host.documents()?.saveAs(active.id),
+    },
+    {
+      type: "item",
+      label: "Revert File",
+      run: () => void host.documents()?.revert(active.id),
+      disabled: active.path.length === 0 || !host.tabs.dirty(active),
     },
     { type: "separator" },
     {

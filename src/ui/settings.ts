@@ -61,6 +61,18 @@ export function createSettingsSheet(handlers: SettingsHandlers): SettingsSheet {
     option.textContent = `${size} columns`;
     tabSize.append(option);
   }
+  // A session written by another machine may hold a width that is not one of
+  // the three choices; show it rather than leaving the select blank.
+  const showTabSize = (size: number): void => {
+    const value = String(size);
+    if (![...tabSize.options].some((option) => option.value === value)) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = `${size} columns`;
+      tabSize.append(option);
+    }
+    tabSize.value = value;
+  };
 
   const insertSpaces = checkbox();
   const wordWrap = checkbox();
@@ -69,7 +81,7 @@ export function createSettingsSheet(handlers: SettingsHandlers): SettingsSheet {
   const hint = document.createElement("p");
   hint.className = "settings-hint";
   hint.textContent =
-    "Text size, wrap, indentation and session restore are stored on this machine. There is no telemetry and no network request.";
+    "Text size, wrap, indentation and session restore are stored on this machine. Tab size and spaces are the fallback for files whose indentation cannot be read; a file that already indents keeps its own. There is no telemetry and no network request.";
 
   const done = document.createElement("button");
   done.type = "button";
@@ -163,7 +175,7 @@ export function createSettingsSheet(handlers: SettingsHandlers): SettingsSheet {
     open(settings) {
       current = settings;
       fontSize.value = String(settings.fontSize);
-      tabSize.value = String(settings.tabSize);
+      showTabSize(settings.tabSize);
       insertSpaces.checked = settings.insertSpaces;
       wordWrap.checked = settings.wordWrap;
       restoreSession.checked = settings.restoreSession;
