@@ -350,6 +350,51 @@ mod tests {
     }
 
     #[test]
+    fn a_copy_and_a_written_asset_are_answered_through_json_rpc() {
+        let dir = temp_dir("rpc-transfer");
+        let source = dir.join("incoming");
+        std::fs::create_dir_all(source.join("nested")).expect("source tree");
+        std::fs::write(source.join("nested").join("raw.bin"), [0u8, 1, 2, 255]).expect("seed");
+        let mut backend = Backend::new();
+
+        let copied = exchange_with(
+            &mut backend,
+            &json!({ "jsonrpc": "2.0", "id": 1, "method": "fs.copy",
+                     "params": { "from": source, "to": dir.join("landed") } })
+            .to_string(),
+        );
+        assert!(copied.get("error").is_none(), "{copied}");
+        assert_eq!(copied["result"]["is_dir"], true);
+        assert_eq!(copied["result"]["files"], 1);
+        assert_eq!(
+            std::fs::read(dir.join("landed").join("nested").join("raw.bin"))
+                .expect("the copied tree is on disk"),
+            vec![0u8, 1, 2, 255]
+        );
+
+        let written = exchange_with(
+            &mut backend,
+            &json!({ "jsonrpc": "2.0", "id": 2, "method": "fs.write_asset",
+                     "params": { "path": dir.join("pasted.bin"), "base64": "AAEC/w==" } })
+            .to_string(),
+        );
+        assert!(written.get("error").is_none(), "{written}");
+        assert_eq!(written["result"]["bytes"], 4);
+        assert_eq!(
+            std::fs::read(dir.join("pasted.bin")).expect("the asset is on disk"),
+            vec![0u8, 1, 2, 255]
+        );
+
+        let refused = exchange_with(
+            &mut backend,
+            &json!({ "jsonrpc": "2.0", "id": 3, "method": "fs.write_asset",
+                     "params": { "path": dir.join("pasted.bin"), "base64": "AAEC/w==" } })
+            .to_string(),
+        );
+        assert_eq!(refused["error"]["code"], -32602, "{refused}");
+    }
+
+    #[test]
     fn a_call_without_a_usable_path_or_content_is_refused_as_invalid_params() {
         for (id, method, params) in [
             (1, "fs.read", json!({})),
