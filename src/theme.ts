@@ -143,7 +143,7 @@ const furniture = EditorView.theme(
     ".cm-panel.cm-search": {
       padding: "6px 8px",
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", sans-serif',
-      fontSize: "11.5px",
+      fontSize: "var(--ponpoko-font-ui, 14px)",
     },
     ".cm-panel.cm-search label": {
       color: "var(--fg-muted, #a9927d)",

@@ -10,7 +10,7 @@ export interface EditorSettings {
 }
 
 export const DEFAULT_SETTINGS: EditorSettings = {
-  fontSize: 13,
+  fontSize: 15,
   tabSize: 2,
   insertSpaces: true,
   wordWrap: false,

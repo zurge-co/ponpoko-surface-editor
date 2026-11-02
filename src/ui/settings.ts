@@ -105,7 +105,7 @@ export function createSettingsSheet(handlers: SettingsHandlers): SettingsSheet {
 
   let open = false;
   let current: EditorSettings = {
-    fontSize: 13,
+    fontSize: 15,
     tabSize: 2,
     insertSpaces: true,
     wordWrap: false,

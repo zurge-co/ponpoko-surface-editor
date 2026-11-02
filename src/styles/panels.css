@@ -22,7 +22,7 @@
   max-width: 190px;
   padding: 0 4px;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--ponpoko-font-ui, 14px);
   color: var(--fg-muted);
   background: transparent;
   border: 1px solid transparent;
@@ -51,7 +51,7 @@
   height: 19px;
   padding: 0 5px;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--ponpoko-font-ui, 14px);
   color: var(--fg-muted);
   background: transparent;
   border: 1px solid transparent;
@@ -115,7 +115,7 @@
 
 .modal-message {
   margin: 0 0 18px;
-  font-size: 12.5px;
+  font-size: var(--ponpoko-font-ui, 14px);
   line-height: 1.7;
   color: var(--fg-muted);
 }
@@ -130,7 +130,7 @@
   min-height: 30px;
   padding: 0 14px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--ponpoko-font-ui, 14px);
   color: var(--fg);
   background: var(--panel-raised);
   border: 1px solid var(--border-strong);
@@ -176,7 +176,7 @@
 }
 
 .modal-label {
-  font-size: 11px;
+  font-size: var(--ponpoko-font-ui, 14px);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--fg-dim);
@@ -186,7 +186,7 @@
   height: 30px;
   padding: 0 9px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--ponpoko-font-ui, 14px);
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--border-strong);
@@ -195,7 +195,7 @@
 
 .modal-error {
   margin: 0 0 14px;
-  font-size: 11.5px;
+  font-size: var(--ponpoko-font-ui, 14px);
   color: var(--danger);
 }
 
@@ -209,7 +209,7 @@
 }
 
 .settings-label {
-  font-size: 12.5px;
+  font-size: var(--ponpoko-font-ui, 14px);
   color: var(--fg);
 }
 
@@ -219,7 +219,7 @@
   height: 26px;
   padding: 0 6px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--ponpoko-font-ui, 14px);
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--border-strong);
@@ -235,7 +235,7 @@
 
 .settings-hint {
   margin: 14px 0 18px;
-  font-size: 11.5px;
+  font-size: var(--ponpoko-font-ui, 14px);
   line-height: 1.7;
   color: var(--fg-dim);
 }
@@ -262,7 +262,7 @@
   min-height: 26px;
   padding: 0 8px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--ponpoko-font-ui, 14px);
   text-align: left;
   color: var(--fg);
   background: transparent;
@@ -288,7 +288,7 @@
 
 .menu-keys {
   font-family: var(--mono-font);
-  font-size: 10.5px;
+  font-size: var(--ponpoko-font-ui, 14px);
   color: var(--fg-dim);
 }
 
@@ -328,7 +328,7 @@
   height: 42px;
   padding: 0 14px;
   font: inherit;
-  font-size: 13.5px;
+  font-size: var(--ponpoko-font-ui, 14px);
   color: var(--fg);
   background: transparent;
   border: none;
@@ -355,7 +355,7 @@
   min-height: 30px;
   padding: 0 9px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--ponpoko-font-ui, 14px);
   text-align: left;
   color: var(--fg);
   background: transparent;
@@ -390,20 +390,20 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   text-align: right;
-  font-size: 11px;
+  font-size: var(--ponpoko-font-ui, 14px);
   color: var(--fg-dim);
 }
 
 .palette-keys {
   flex: 0 0 auto;
   font-family: var(--mono-font);
-  font-size: 10.5px;
+  font-size: var(--ponpoko-font-ui, 14px);
   color: var(--fg-dim);
 }
 
 .palette-empty {
   padding: 12px 10px 16px;
-  font-size: 12px;
+  font-size: var(--ponpoko-font-ui, 14px);
   line-height: 1.7;
   color: var(--fg-dim);
 }
@@ -415,7 +415,7 @@
   gap: 12px;
   flex: 0 0 auto;
   padding: 6px 12px;
-  font-size: 10.5px;
+  font-size: var(--ponpoko-font-ui, 14px);
   color: var(--fg-dim);
   border-top: 1px solid var(--border);
 }
@@ -432,7 +432,7 @@
   max-width: 560px;
   margin: 12vh auto 0;
   padding: 0 24px;
-  font-size: 13px;
+  font-size: var(--ponpoko-font-ui, 14px);
   line-height: 1.7;
 }
 
