@@ -13,6 +13,9 @@
   --accent-soft: #acda52;
   --attention: #eaee5c;
   --danger: #ff6b6b;
+  --on-accent: #14100c;
+  --code: #14100c;
+  --overlay: rgba(0, 0, 0, 0.45);
   --accent-selection: rgba(125, 186, 55, 0.15);
   --attention-soft: rgba(234, 238, 92, 0.08);
   --radius: 6px;
@@ -139,7 +142,7 @@ body {
 }
 
 .action:active:not(:disabled) {
-  background: #303030;
+  background: var(--panel-hover);
 }
 
 .action:disabled {
@@ -196,7 +199,7 @@ body {
 }
 
 .tab:hover {
-  background: #1f1f1f;
+  background: var(--panel-hover);
   color: var(--fg);
 }
 
@@ -361,7 +364,7 @@ body {
   flex: 0 0 auto;
   min-width: 0;
   min-height: 0;
-  background: #141414;
+  background: var(--panel);
   border-right: 1px solid var(--border);
 }
 

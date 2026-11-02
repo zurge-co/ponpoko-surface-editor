@@ -130,7 +130,7 @@ export function createSurfaceLink(options: SurfaceLinkOptions): SurfaceLink {
     }
 
     if (message.control === HOST_PALETTE) {
-      const tokens = readPaletteTokens(message.palette);
+      const tokens = readPaletteTokens({ tokens: message.tokens });
       if (tokens) for (const handler of paletteHandlers) handler(tokens);
       return;
     }
@@ -141,7 +141,7 @@ export function createSurfaceLink(options: SurfaceLinkOptions): SurfaceLink {
       return;
     }
 
-    const id = typeof message.id === "string" ? message.id : "";
+    const id = typeof message.request_id === "string" ? message.request_id : "";
     const waiter = pending.get(id);
     if (!waiter) return;
     pending.delete(id);
@@ -151,8 +151,8 @@ export function createSurfaceLink(options: SurfaceLinkOptions): SurfaceLink {
     }
     waiter.reject(
       new Error(
-        typeof message.error === "string" && message.error.length > 0
-          ? message.error
+        isRecord(message.error) && typeof message.error.message === "string"
+          ? message.error.message
           : "the host refused the call and did not say why",
       ),
     );
@@ -162,7 +162,7 @@ export function createSurfaceLink(options: SurfaceLinkOptions): SurfaceLink {
     new Promise((resolve, reject) => {
       const id = newId();
       pending.set(id, { resolve, reject });
-      transport.post({ channel: SURFACE_BRIDGE_CHANNEL, view, id, verb, payload });
+      transport.post({ channel: SURFACE_BRIDGE_CHANNEL, view, request_id: id, namespace: "host.surface", operation: verb, payload });
     });
 
   return {

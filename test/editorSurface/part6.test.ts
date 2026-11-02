@@ -102,7 +102,7 @@ describe("navigation finds a symbol with the static index, not a language server
     host.deliver({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-1",
+      request_id: "call-1",
       ok: true,
       result: { path: "/w/src/a.ts", word: "greet", language: "typescript", definitions: [], notes: [] },
     });

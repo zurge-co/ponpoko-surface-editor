@@ -344,11 +344,11 @@
 
 .welcome-button:hover {
   background: var(--panel-hover);
-  border-color: #4a4a4a;
+  border-color: var(--border-strong);
 }
 
 .welcome-button.primary {
-  color: #07130b;
+  color: var(--on-accent);
   font-weight: 600;
   background: var(--accent);
   border-color: var(--accent);
@@ -442,9 +442,9 @@
   padding: 7px 10px;
   font-size: var(--ponpoko-font-ui, 14px);
   line-height: 1.5;
-  color: #ffd9dc;
-  background: #ff6b6b18;
-  border-top: 1px solid #ff6b6b33;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
 }
 
 .banner svg {
@@ -460,16 +460,16 @@
   flex: 0 0 auto;
   font: inherit;
   font-size: var(--ponpoko-font-ui, 14px);
-  color: #ffd9dc;
+  color: var(--danger);
   background: transparent;
-  border: 1px solid #ff6b6b44;
+  border: 1px solid color-mix(in srgb, var(--danger) 27%, transparent);
   border-radius: 4px;
   padding: 2px 8px;
   cursor: pointer;
 }
 
 .banner-dismiss:hover {
-  background: #ff6b6b22;
+  background: color-mix(in srgb, var(--danger) 13%, transparent);
 }
 
 

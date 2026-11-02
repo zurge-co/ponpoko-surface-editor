@@ -171,15 +171,15 @@ describe("the surface asks the host for the clipboard instead of reading it itse
     expect(host.posted[0]).toEqual({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-1",
-      verb: "tool.paste",
+      request_id: "call-1",
+      namespace: "host.surface", operation: "tool.paste",
       payload: {},
     });
 
     host.deliver({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-1",
+      request_id: "call-1",
       ok: true,
       result: answer({ kind: "image", name: "pasted-image-1.png", mime: "image/png", base64: "iVBORw==" }),
     });
@@ -194,9 +194,9 @@ describe("the surface asks the host for the clipboard instead of reading it itse
     host.deliver({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-1",
+      request_id: "call-1",
       ok: false,
-      error: "the clipboard handed over bytes that are not a PNG",
+      error: { code: "host_unavailable", message: "the clipboard handed over bytes that are not a PNG", retryable: false },
     });
     await expect(reading).rejects.toThrow("not a PNG");
   });
@@ -208,7 +208,7 @@ describe("the surface asks the host for the clipboard instead of reading it itse
     for (const result of [null, "file", { kind: "screenshot" }, { kind: "file", paths: "not a list" }]) {
       const reading = surface.paste();
       const posted = host.posted[host.posted.length - 1]!;
-      host.deliver({ channel: SURFACE_BRIDGE_CHANNEL, view: VIEW, id: posted.id, ok: true, result });
+      host.deliver({ channel: SURFACE_BRIDGE_CHANNEL, view: VIEW, request_id: posted.request_id, ok: true, result });
       const settled = await reading;
       expect(settled.paths).toEqual([]);
       expect(settled.base64).toBe("");

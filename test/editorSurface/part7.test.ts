@@ -476,7 +476,7 @@ describe("the copy and asset methods are declared and travel through the bridge"
     host.deliver({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-1",
+      request_id: "call-1",
       ok: true,
       result: { from: "/Users/saint/big.iso", to: "/w/big.iso", is_dir: false, bytes: 3, files: 1 },
     });
@@ -489,7 +489,7 @@ describe("the copy and asset methods are declared and travel through the bridge"
     host.deliver({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-2",
+      request_id: "call-2",
       ok: true,
       result: { path: "/w/b.bin", bytes: 3 },
     });

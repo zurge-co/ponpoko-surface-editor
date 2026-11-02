@@ -90,7 +90,7 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: #000000a8;
+  background: var(--overlay, rgba(0, 0, 0, 0.45));
 }
 
 .modal {
@@ -101,7 +101,7 @@
   background: var(--panel);
   border: 1px solid var(--border-strong);
   border-radius: 10px;
-  box-shadow: 0 24px 60px #00000073;
+  box-shadow: 0 24px 60px var(--overlay, rgba(0, 0, 0, 0.45));
 }
 
 .modal-title {
@@ -143,7 +143,7 @@
 }
 
 .modal-button.primary {
-  color: #07130b;
+  color: var(--on-accent);
   font-weight: 600;
   background: var(--accent);
   border-color: var(--accent);
@@ -155,13 +155,13 @@
 }
 
 .modal-button.danger {
-  color: #ffd9dc;
-  background: #ff6b6b1f;
-  border-color: #ff6b6b55;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 33%, transparent);
 }
 
 .modal-button.danger:hover {
-  background: #ff6b6b30;
+  background: color-mix(in srgb, var(--danger) 19%, transparent);
 }
 
 .modal.settings {
@@ -247,7 +247,7 @@
   min-width: 210px;
   max-width: 340px;
   padding: 4px;
-  background: #202020;
+  background: var(--panel-raised);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   box-shadow: 0 16px 40px #0000008c;
@@ -283,7 +283,7 @@
 }
 
 .menu-item.danger {
-  color: #ffb4b9;
+  color: var(--danger);
 }
 
 .menu-keys {
@@ -307,7 +307,7 @@
   justify-content: center;
   align-items: flex-start;
   padding: 10vh 16px 24px;
-  background: #00000073;
+  background: var(--overlay, rgba(0, 0, 0, 0.45));
 }
 
 .palette {
@@ -316,7 +316,7 @@
   width: min(640px, 100%);
   max-height: calc(100vh - 120px);
   overflow: hidden;
-  background: #1c1c1c;
+  background: var(--panel-raised);
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   box-shadow: 0 24px 60px #000000a6;

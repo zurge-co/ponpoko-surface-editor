@@ -18,15 +18,15 @@ describe("the editor surface speaks the host's wire exactly", () => {
     expect(host.posted[0]).toEqual({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-1",
-      verb: "tool.file",
+      request_id: "call-1",
+      namespace: "host.surface", operation: "tool.file",
       payload: { mode: "open", title: "Open" },
     });
 
     host.deliver({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-1",
+      request_id: "call-1",
       ok: true,
       result: { path: "/tmp/picked.md" },
     });
@@ -46,21 +46,21 @@ describe("the editor surface speaks the host's wire exactly", () => {
     host.deliver({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: "another-view",
-      id: "call-1",
+      request_id: "call-1",
       ok: true,
       result: { leaked: "into the wrong view" },
     });
     host.deliver({
       channel: "someone.else",
       view: VIEW,
-      id: "call-1",
+      request_id: "call-1",
       ok: true,
       result: { leaked: "from the wrong protocol" },
     });
     host.deliver({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-9",
+      request_id: "call-9",
       ok: true,
       result: { leaked: "for another request" },
     });
@@ -70,7 +70,7 @@ describe("the editor surface speaks the host's wire exactly", () => {
     host.deliver({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-1",
+      request_id: "call-1",
       ok: true,
       result: { workspaces: [] },
     });
@@ -85,14 +85,14 @@ describe("the editor surface speaks the host's wire exactly", () => {
     host.deliver({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-1",
+      request_id: "call-1",
       ok: false,
-      error: "'backend.call' is not in this surface's manifest",
+      error: { code: "host_unavailable", message: "'backend.call' is not in this surface's manifest", retryable: false },
     });
     await expect(promise).rejects.toThrow("not in this surface's manifest");
 
     const silent = surface.call("tool.file", { mode: "save" });
-    host.deliver({ channel: SURFACE_BRIDGE_CHANNEL, view: VIEW, id: "call-2", ok: false });
+    host.deliver({ channel: SURFACE_BRIDGE_CHANNEL, view: VIEW, request_id: "call-2", ok: false });
     await expect(silent).rejects.toThrow("did not say why");
   });
 
@@ -104,7 +104,7 @@ describe("the editor surface speaks the host's wire exactly", () => {
       path: "/tmp/a.txt",
       content: "hello",
     });
-    expect(host.posted[0]!.verb).toBe("backend.call");
+    expect(host.posted[0]!.operation).toBe("backend.call");
     expect(host.posted[0]!.payload).toEqual({
       method: "demo.write",
       params: { path: "/tmp/a.txt", content: "hello" },
@@ -113,7 +113,7 @@ describe("the editor surface speaks the host's wire exactly", () => {
     host.deliver({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-1",
+      request_id: "call-1",
       ok: true,
       result: { bytes: 5 },
     });
@@ -129,7 +129,7 @@ describe("the editor surface speaks the host's wire exactly", () => {
     host.deliver({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-1",
+      request_id: "call-1",
       ok: true,
       result: { path: "/tmp/saved.md" },
     });
@@ -139,7 +139,7 @@ describe("the editor surface speaks the host's wire exactly", () => {
     host.deliver({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-2",
+      request_id: "call-2",
       ok: true,
       result: { path: null },
     });
@@ -149,7 +149,7 @@ describe("the editor surface speaks the host's wire exactly", () => {
     host.deliver({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-3",
+      request_id: "call-3",
       ok: true,
       result: "not an answer shape",
     });
@@ -173,7 +173,7 @@ describe("the editor surface speaks the host's wire exactly", () => {
     host.deliver({
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
-      id: "call-1",
+      request_id: "call-1",
       ok: true,
       result: { path: "/Users/someone/work" },
     });
@@ -197,9 +197,9 @@ describe("the editor surface speaks the host's wire exactly", () => {
       channel: SURFACE_BRIDGE_CHANNEL,
       view: VIEW,
       control: HOST_HELLO,
-      doors: ["tool.file", "backend.call", 7],
+      doors: ["host.surface.tool.file", "host.surface.backend.call", 7],
     });
-    expect(greetings).toEqual([["tool.file", "backend.call"]]);
+    expect(greetings).toEqual([["host.surface.tool.file", "host.surface.backend.call"]]);
 
     host.deliver({ channel: SURFACE_BRIDGE_CHANNEL, view: "elsewhere", control: HOST_HELLO, grants: [] });
     expect(greetings).toHaveLength(1);

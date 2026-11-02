@@ -57,7 +57,7 @@ export async function restoreSession(host: LifecycleHost, persisted: PersistedSe
 
 export function wireLink(link: SurfaceLink, showError: (message: string) => void): void {
   link.onHello((doors) => {
-    if (doors.includes("backend.call")) return;
+    if (doors.includes("host.surface.backend.call")) return;
     showError(
       "The host answered without its backend door, so this surface cannot read or write files. Reinstall it from the Surfaces window.",
     );
