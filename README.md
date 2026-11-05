@@ -374,3 +374,9 @@ RTL) is the WebView's own work and needs nothing from Ponpoko. That is the reaso
 a surface — rather than a built-in screen — is a good home for it. A terminal
 surface is a different story: a grid of fixed-width cells mis-measures Thai
 combining marks, and that problem is not addressed in this round.
+
+### Host and document shortcuts
+
+Ponpoko reserves Cmd/Ctrl+1–9 for Favorite surfaces and Cmd/Ctrl+K for the surface picker.
+Use Cmd/Ctrl+Alt+1–9 to select an Editor document tab. Ctrl+Tab and Ctrl+Shift+Tab still select
+the next and previous document. The command palette lists the current shortcut for each tab.

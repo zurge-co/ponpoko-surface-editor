@@ -33,7 +33,7 @@ export const APP_KEYBINDINGS: readonly KeyBindingSpec[] = [
   { key: "Mod-Digit0", command: "view.zoomReset", label: "Reset Zoom" },
   { key: "Mod-Comma", command: "view.settings", label: "Settings" },
   ...Array.from({ length: 9 }, (_, index) => ({
-    key: `Mod-Digit${index + 1}`,
+    key: `Mod-Alt-Digit${index + 1}`,
     command: `tab.activate${index + 1}`,
     label: `Go to Tab ${index + 1}`,
   })),

@@ -183,7 +183,10 @@ describe("the keyboard follows VS Code's spelling of the same shortcuts", () => 
     expect(app.get("Mod-Shift-w")).toBe("file.closeAll");
     expect(app.get("Ctrl-Tab")).toBe("tab.next");
     expect(app.get("Ctrl-Shift-Tab")).toBe("tab.previous");
-    expect(app.get("Mod-Digit9")).toBe("tab.activate9");
+    expect(app.get("Mod-Alt-Digit9")).toBe("tab.activate9");
+    expect(matchesKey(keyEvent({ key: "¡", code: "Digit1", meta: true, alt: true }), "Mod-Alt-Digit1", "mac")).toBe(true);
+    expect(matchesKey(keyEvent({ key: "1", code: "Digit1", meta: true }), "Mod-Alt-Digit1", "mac")).toBe(false);
+    for (let number = 1; number <= 9; number++) expect(app.has(`Mod-Digit${number}`)).toBe(false);
     expect(app.get("Alt-z")).toBe("view.toggleWrap");
     expect(app.get("Mod-p")).toBe("quickopen.files");
     expect(app.get("Mod-Shift-p")).toBe("command.palette");
